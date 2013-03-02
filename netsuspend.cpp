@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <linux/if_ether.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -20,6 +21,7 @@
 // frame was sniffed
 #define SLEEP_WAIT 15
 
+void parse_config_file(const std::string& filename);
 void swap16Bit(char* data);
 double get_time(const timeval& time);
 void handle_frame(char* buffer, timeval& last_important_traffic);
@@ -37,15 +39,18 @@ Log log;
 
 int main(int argc, char** argv)
 {
+  // Error check the arguments
+  if (argc != 2)
+  {
+    std::cout << "Usage: " << argv[0] << " <port list>\n";
+    return 1;
+  }
+
   // Set up signal handling
   signal(SIGINT, clean_exit);
 
-  // Create the list of important ports
-  ports.push_back(22);   // ssh
-  ports.push_back(80);   // http
-  ports.push_back(445);  // Windows networking
-  ports.push_back(139);  // Windows networking
-  ports.push_back(2049); // nfs
+  // Parse the config file for important ports
+  parse_config_file(argv[1]);
 
   // Create the socket to sniff frames on
   LinuxRawSocket sniff_socket;
@@ -111,6 +116,36 @@ int main(int argc, char** argv)
   }
 
   return 0;
+}
+
+void parse_config_file(const std::string& filename)
+{
+  // Open the configuration file
+  std::fstream config_file(filename.c_str());
+
+  // Read all the lines out of it
+  while(!config_file.eof())
+  {
+    // Read a port number
+    unsigned short port;
+    config_file >> port;
+
+    // Push the valid port number onto the list if the read was successful
+    if (config_file.good())
+    {
+      ports.push_back(port);
+    }
+
+    // Clear any error bits
+    config_file.clear();
+
+    // Discard the rest of the line
+    char buf = '\0';
+    while (!config_file.eof() && buf != '\n')
+    {
+      config_file.get(buf);
+    }
+  }
 }
 
 void swap16Bit(char* data)
