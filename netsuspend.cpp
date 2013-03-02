@@ -1,12 +1,18 @@
+// Network-based timed suspend utility
+// Leigh Garbs
+
 #include <algorithm>
+#include <csignal>
 #include <cstring>
-#include <iostream>
+#include <fstream>
 #include <linux/if_ether.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <unistd.h>
 #include <vector>
 
 #include "LinuxRawSocket.hpp"
+#include "Log.hpp"
 #include "ethernet_ii_header.h"
 #include "ipv4_header.h"
 
@@ -16,20 +22,24 @@
 
 void swap16Bit(char* data);
 double get_time(const timeval& time);
-void handle_frame(char* buffer);
+void handle_frame(char* buffer, timeval& last_important_traffic);
+void update_times(timeval& current_time, timeval& last_important_traffic);
+void clean_exit(int);
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
 
-// This tracks how long its been since the last frame with important traffic in
-// it was sniffed
-timeval last_important_traffic;
-
 // Is host computer big endian?
 bool is_big_endian;
 
+// Log used to note important events
+Log log;
+
 int main(int argc, char** argv)
 {
+  // Set up signal handling
+  signal(SIGINT, clean_exit);
+
   // Create the list of important ports
   ports.push_back(22);   // ssh
   ports.push_back(80);   // http
@@ -46,38 +56,57 @@ int main(int argc, char** argv)
   // Buffer to sniff data into
   char buffer[ETH_FRAME_LEN];
 
-  // Initialize the time at which the last important traffic was sniffed as now
-  gettimeofday(&last_important_traffic, 0);
-
   // Initialize current time
   timeval current_time;
   gettimeofday(&current_time, 0);
+
+  // This tracks how long its been since the last frame with important traffic
+  // in it was sniffed; initialize to now as well
+  timeval last_important_traffic;
+  gettimeofday(&last_important_traffic, 0);
 
   // Determine endian-ness of this host
   unsigned short test_var = 0xff00;
   is_big_endian = *(unsigned char*)&test_var > 0;
 
+  // Note this service is starting
+  log.write("Service starting");
+
   // Start sniffing
   while(true)
   {
+    update_times(current_time, last_important_traffic);
+
     // Sniff a frame; if nothing was read or an error occurred try again
     if (sniff_socket.read(buffer, ETH_FRAME_LEN) > 0)
     {
-      handle_frame(buffer);
+      handle_frame(buffer, last_important_traffic);
     }
 
-    // Update current time
-    gettimeofday(&current_time, 0);
+    update_times(current_time, last_important_traffic);
     
     // Determine how long its been since the last important packet was read 
     if ((get_time(current_time) - get_time(last_important_traffic)) / 60 > SLEEP_WAIT)
     {
-      // It's been too long since the system received important network traffic, sleep
+      // It's been too long since the system received important network traffic,
+      // so sleep
+
+      // First, log that we're going to sleep
+      log.write("Timer expired, suspending");
+
+      // Actually go to sleep
       system("pm-suspend");
 
-      // At this point the process just woke from sleep, reset last important
-      // traffic received time to reset the timeout
+      // At this point the process just woke from sleep
+
+      // Log that we just woke up
+      log.write("Resuming from suspend");
+
+      // Reset last important traffic received time to reset the timeout
       gettimeofday(&last_important_traffic, 0);
+
+      // Dump any data received during the sleep, it's not really that important
+      sniff_socket.clearBuffer();
     }
   }
 
@@ -100,7 +129,7 @@ double get_time(const timeval& time)
   return time.tv_sec + static_cast<double>(time.tv_usec) / 1e6;
 }
 
-void handle_frame(char* buffer)
+void handle_frame(char* buffer, timeval& last_important_traffic)
 {
   // Assume its an Ethernet II frame
   ethernet_ii_header* eth_header = (ethernet_ii_header*)buffer;
@@ -161,4 +190,38 @@ void handle_frame(char* buffer)
   //This is an important packet, so mark this moment as the last time an
   //important packet was received
   gettimeofday(&last_important_traffic, 0);
+
+  // In order to limit how much time this process takes up, sleep here for a
+  // bit.  This helps limit the processing time this process takes when large
+  // transfers of important traffic are being done.
+  usleep(1000000);
+}
+
+void update_times(timeval& current_time, timeval& last_important_traffic)
+{
+  // What is the current time?
+  timeval new_current_time;
+  gettimeofday(&new_current_time, 0);
+
+  // If it been over 5 seconds since the last time the current time was checked,
+  // assume the computer this process is running on was suspended and has
+  // resumed.  In this case the timer should be reset.
+  if (get_time(new_current_time) - get_time(current_time) > 5)
+  {
+    // Log that this is happening
+    log.write("Suspend detected, resetting timer");
+
+    memcpy(&last_important_traffic, &new_current_time, sizeof(timeval));
+  }
+
+  // Update current time
+  memcpy(&current_time, &new_current_time, sizeof(timeval));
+}
+
+void clean_exit(int)
+{
+  // Log that the service is stopping
+  log.write("Service stopping");
+
+  exit(0);
 }
