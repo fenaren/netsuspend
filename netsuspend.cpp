@@ -40,9 +40,9 @@ Log log;
 int main(int argc, char** argv)
 {
   // Error check the arguments
-  if (argc != 2)
+  if (argc != 3)
   {
-    std::cout << "Usage: " << argv[0] << " <port list>\n";
+    std::cout << "Usage: " << argv[0] << " <interface name> <port list>\n";
     return 1;
   }
 
@@ -50,13 +50,13 @@ int main(int argc, char** argv)
   signal(SIGINT, clean_exit);
 
   // Parse the config file for important ports
-  parse_config_file(argv[1]);
+  parse_config_file(argv[2]);
 
   // Create the socket to sniff frames on
   LinuxRawSocket sniff_socket;
   sniff_socket.enableBlocking();
   sniff_socket.setBlockingTimeout(1.0);
-  sniff_socket.setInputInterface("eth1");
+  sniff_socket.setInputInterface(argv[1]);
 
   // Buffer to sniff data into
   char buffer[ETH_FRAME_LEN];
