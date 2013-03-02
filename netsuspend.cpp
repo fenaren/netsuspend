@@ -12,7 +12,7 @@
 
 // How long to wait (in minutes) before going to sleep after the last important
 // frame was sniffed
-#define SLEEP_WAIT 1
+#define SLEEP_WAIT 15
 
 void swap16Bit(char* data);
 double get_time(const timeval& time);
