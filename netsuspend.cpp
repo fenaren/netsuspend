@@ -5,7 +5,6 @@
 #include <csignal>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <linux/if_ether.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -21,6 +20,7 @@
 // frame was sniffed
 #define SLEEP_WAIT 15
 
+bool processArguments(int argc, char** argv);
 void parse_config_file(const std::string& filename);
 void swap16Bit(char* data);
 double get_time(const timeval& time);
@@ -34,16 +34,50 @@ std::vector<unsigned short> ports;
 // Is host computer big endian?
 bool is_big_endian;
 
+// Whether or not this process should daemonize and background itself on
+// startup; when run as a traditional Linux daemon this should be done
+bool daemonize;
+
+// Absolute path to the log file written by this program; defaults to
+// '/var/log/netsuspend.log'
+std::string log_filename;
+
+// Absolute path to the file defining important traffic; defaults to
+// '/etc/netsuspend.conf'
+std::string config_filename;
+
+// The Ethernet interface to monitor; defaults to 'eth0'
+std::string eth_interface;
+
 // Log used to note important events
 Log log;
 
 int main(int argc, char** argv)
 {
-  // Error check the arguments
-  if (argc != 3)
+  // Determine endian-ness of this host
+  unsigned short test_var = 0xff00;
+  is_big_endian = *(unsigned char*)&test_var > 0;
+
+  // Default operational parameters; can be overridden by arguments
+  daemonize = false;
+  log_filename = "/var/log/netsuspend.log";
+  config_filename = "/etc/netsuspend.conf";
+  eth_interface = "eth0";
+
+  // Process the arguments
+  if (!processArguments(argc, argv))
   {
-    std::cout << "Usage: " << argv[0] << " <interface name> <port list>\n";
-    return 1;
+    // TODO: show help message here
+    exit(0);
+  }
+
+  // If this process is to run as a daemon then do it
+  if (daemonize)
+  {
+    if (daemon(0, 0) != 0)
+    {
+      exit(1);
+    }
   }
 
   // Set up signal handling
@@ -69,10 +103,6 @@ int main(int argc, char** argv)
   // in it was sniffed; initialize to now as well
   timeval last_important_traffic;
   gettimeofday(&last_important_traffic, 0);
-
-  // Determine endian-ness of this host
-  unsigned short test_var = 0xff00;
-  is_big_endian = *(unsigned char*)&test_var > 0;
 
   // Note this service is starting
   log.write("Service starting");
@@ -116,6 +146,49 @@ int main(int argc, char** argv)
   }
 
   return 0;
+}
+
+bool processArguments(int argc, char** argv)
+{
+  // Loop over all the arguments, and process them
+  for (int arg = 1; arg < argc; arg++)
+  {
+    // Argument -D daemonizes this process
+    if (strcmp("-D", argv[arg]) == 0)
+    {
+      daemonize = true;
+    }
+    // Argument -l specifies a file to log to
+    else if (strcmp("-l", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      // The next argument will be the log file pathname
+      arg++;
+
+      // Save the log filename
+      log_filename = argv[arg];
+    }
+    // Argument -i specifies an interface to monitor
+    else if (strcmp("-i", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      // The next argument will be the interface to monitor
+      arg++;
+
+      // Save the interface to monitor
+      eth_interface = argv[arg];
+    }
+    // Argument -c specifies an alternative config file
+    else if (strcmp("-c", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      // The next argument will be config filename
+      arg++;
+
+      // Save the interface to monitor
+      config_filename = argv[arg];
+    }
+  }
+
+  // If execution reaches here there was an acceptable set of arguments provided
+  return true;
 }
 
 void parse_config_file(const std::string& filename)
