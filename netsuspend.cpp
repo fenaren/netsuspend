@@ -1,11 +1,14 @@
 // Network-based timed suspend utility
 // Leigh Garbs
 
+#include <iostream>
+
 #include <algorithm>
 #include <csignal>
 #include <cstring>
 #include <fstream>
 #include <linux/if_ether.h>
+#include <sstream>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -16,17 +19,13 @@
 #include "ethernet_ii_header.h"
 #include "ipv4_header.h"
 
-// How long to wait (in minutes) before going to sleep after the last important
-// frame was sniffed
-#define SLEEP_WAIT 15
 
-bool processArguments(int argc, char** argv);
-void parse_config_file(const std::string& filename);
-void swap16Bit(char* data);
-double get_time(const timeval& time);
-void handle_frame(char* buffer, timeval& last_important_traffic);
-void update_times(timeval& current_time, timeval& last_important_traffic);
-void clean_exit(int);
+// Length of the input buffers used during config and default file parsing
+#define PARSING_BUFFER_LENGTH 1000
+
+
+// Filename of the default settings file, typically located in /etc/default
+std::string default_filename = "/etc/default/netsuspend";
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
@@ -34,121 +33,45 @@ std::vector<unsigned short> ports;
 // Is host computer big endian?
 bool is_big_endian;
 
-// Whether or not this process should daemonize and background itself on
-// startup; when run as a traditional Linux daemon this should be done
-bool daemonize;
-
-// Absolute path to the log file written by this program; defaults to
-// '/var/log/netsuspend.log'
-std::string log_filename;
-
-// Absolute path to the file defining important traffic; defaults to
-// '/etc/netsuspend.conf'
-std::string config_filename;
-
-// The Ethernet interface to monitor; defaults to 'eth0'
-std::string eth_interface;
-
 // Log used to note important events
 Log log;
 
-int main(int argc, char** argv)
+
+// THESE CONFIGURATION VARIABLES ARE SET BASED ON THE DEFAULT FILE AND/OR
+// PROGRAM ARGUMENTS
+
+// Name of the interface on which proxying will take place
+std::string interface_name = "eth0";
+
+// Filename of the config file, typically located in /etc
+std::string config_filename = "/etc/netsuspend.conf";
+
+// Filename of the log file, typically located in /var/log
+std::string log_filename = "/var/log/netsuspend.log";
+
+// Whether or not this process should daemonize
+bool daemonize = false;
+
+// How long netsuspend should allow the computer to remain idle before putting
+// it to sleep
+unsigned int idle_timeout = 15;
+
+
+//=============================================================================
+// Performs any clean up that must be done before the program halts
+//=============================================================================
+void clean_exit(int)
 {
-  // Determine endian-ness of this host
-  unsigned short test_var = 0xff00;
-  is_big_endian = *(unsigned char*)&test_var > 0;
+  // Log that the service is stopping
+  log.write("Service stopping");
 
-  // Default operational parameters; can be overridden by arguments
-  daemonize = false;
-  log_filename = "/var/log/netsuspend.log";
-  config_filename = "/etc/netsuspend.conf";
-  eth_interface = "eth0";
-
-  // Process the arguments
-  if (!processArguments(argc, argv))
-  {
-    // TODO: show help message here
-    exit(0);
-  }
-
-  // If this process is to run as a daemon then do it
-  if (daemonize)
-  {
-    if (daemon(0, 0) != 0)
-    {
-      exit(1);
-    }
-  }
-
-  // Set up signal handling
-  signal(SIGINT, clean_exit);
-
-  // Parse the config file for important ports
-  parse_config_file(argv[2]);
-
-  // Create the socket to sniff frames on
-  LinuxRawSocket sniff_socket;
-  sniff_socket.enableBlocking();
-  sniff_socket.setBlockingTimeout(1.0);
-  sniff_socket.setInputInterface(argv[1]);
-
-  // Buffer to sniff data into
-  char buffer[ETH_FRAME_LEN];
-
-  // Initialize current time
-  timeval current_time;
-  gettimeofday(&current_time, 0);
-
-  // This tracks how long its been since the last frame with important traffic
-  // in it was sniffed; initialize to now as well
-  timeval last_important_traffic;
-  gettimeofday(&last_important_traffic, 0);
-
-  // Note this service is starting
-  log.write("Service starting");
-
-  // Start sniffing
-  while(true)
-  {
-    update_times(current_time, last_important_traffic);
-
-    // Sniff a frame; if nothing was read or an error occurred try again
-    if (sniff_socket.read(buffer, ETH_FRAME_LEN) > 0)
-    {
-      handle_frame(buffer, last_important_traffic);
-    }
-
-    update_times(current_time, last_important_traffic);
-    
-    // Determine how long its been since the last important packet was read 
-    if ((get_time(current_time) - get_time(last_important_traffic)) / 60 > SLEEP_WAIT)
-    {
-      // It's been too long since the system received important network traffic,
-      // so sleep
-
-      // First, log that we're going to sleep
-      log.write("Timer expired, suspending");
-
-      // Actually go to sleep
-      system("pm-suspend");
-
-      // At this point the process just woke from sleep
-
-      // Log that we just woke up
-      log.write("Resuming from suspend");
-
-      // Reset last important traffic received time to reset the timeout
-      gettimeofday(&last_important_traffic, 0);
-
-      // Dump any data received during the sleep, it's not really that important
-      sniff_socket.clearBuffer();
-    }
-  }
-
-  return 0;
+  exit(0);
 }
 
-bool processArguments(int argc, char** argv)
+//=============================================================================
+// Processes program arguments
+//=============================================================================
+bool process_arguments(int argc, char** argv)
 {
   // Loop over all the arguments, and process them
   for (int arg = 1; arg < argc; arg++)
@@ -158,32 +81,26 @@ bool processArguments(int argc, char** argv)
     {
       daemonize = true;
     }
-    // Argument -l specifies a file to log to
-    else if (strcmp("-l", argv[arg]) == 0 && arg + 1 < argc)
+    // Argument -c specifies an alternative config file
+    else if (strcmp("-c", argv[arg]) == 0 && arg + 1 < argc)
     {
-      // The next argument will be the log file pathname
       arg++;
 
-      // Save the log filename
-      log_filename = argv[arg];
+      config_filename = argv[arg];
     }
     // Argument -i specifies an interface to monitor
     else if (strcmp("-i", argv[arg]) == 0 && arg + 1 < argc)
     {
-      // The next argument will be the interface to monitor
       arg++;
 
-      // Save the interface to monitor
-      eth_interface = argv[arg];
+      interface_name = argv[arg];
     }
-    // Argument -c specifies an alternative config file
-    else if (strcmp("-c", argv[arg]) == 0 && arg + 1 < argc)
+    // Argument -l specifies a file to log to
+    else if (strcmp("-l", argv[arg]) == 0 && arg + 1 < argc)
     {
-      // The next argument will be config filename
       arg++;
 
-      // Save the interface to monitor
-      config_filename = argv[arg];
+      log_filename = argv[arg];
     }
   }
 
@@ -191,6 +108,9 @@ bool processArguments(int argc, char** argv)
   return true;
 }
 
+//=============================================================================
+// Parses configuration file
+//=============================================================================
 void parse_config_file(const std::string& filename)
 {
   // Open the configuration file
@@ -221,7 +141,86 @@ void parse_config_file(const std::string& filename)
   }
 }
 
-void swap16Bit(char* data)
+//=============================================================================
+// Parses default file
+//=============================================================================
+void parse_default_file(const std::string& filename)
+{
+  // Open the defaults file
+  std::ifstream default_stream(filename.c_str());
+
+  // Initialize some stuff to be used during parsing
+  char default_line_buffer[PARSING_BUFFER_LENGTH];
+  std::istringstream convert_to_number;
+
+  // Read the entire defaults file
+  while(!default_stream.eof())
+  {
+    // Read a line of the file
+    default_stream.getline(default_line_buffer, PARSING_BUFFER_LENGTH);
+
+    // Convert it to a string
+    std::string default_line_string = default_line_buffer;
+
+    // Ignore the line if it's a comment
+    if (default_line_string[0] == '#')
+    {
+      continue;
+    }
+
+    // Search through the line for a '='
+    size_t equal_sign = default_line_string.find('=');
+
+    // If there isn't an equal sign, or the equal sign is at the beginning or
+    // end of the buffer, just go to the next line because this line is bad
+    if (equal_sign == std::string::npos ||
+	equal_sign == 0 ||
+	equal_sign == default_line_string.length())
+    {
+      continue;
+    }
+
+    // Pull out the strings on the left and right of the equal sign
+    std::string left_side  = default_line_string.substr(0, equal_sign);
+    std::string right_side = default_line_string.substr(equal_sign + 1,
+							std::string::npos);
+
+    // Now set the appropriate variable based on what was just parsed
+    if (left_side == "ETH_INTERFACE")
+    {
+      interface_name = right_side;
+    }
+    else if (left_side == "CONFIG_FILE")
+    {
+      config_filename = right_side;
+    }
+    else if (left_side == "LOG_FILE")
+    {
+      log_filename = right_side;
+    }
+    else if (left_side == "DAEMONIZE")
+    {
+      if (right_side == "yes")
+      {
+	daemonize = true;
+      }
+      else
+      {
+	daemonize = false;
+      }
+    }
+    else if (left_side == "IDLE_TIMEOUT")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> idle_timeout;
+    }
+  }
+}
+
+//=============================================================================
+// Swaps the two bytes beginning at data
+//=============================================================================
+void byteswap(char* data)
 {
   // Copy the port's two bytes
   char byte1 = *data;
@@ -232,11 +231,17 @@ void swap16Bit(char* data)
   memcpy(data + 1, &byte1, 1);
 }
 
+//=============================================================================
+// Returns a double representation of a timeval timestamp
+//=============================================================================
 double get_time(const timeval& time)
 {
   return time.tv_sec + static_cast<double>(time.tv_usec) / 1e6;
 }
 
+//=============================================================================
+// Handles Ethernet frames as they are sniffed
+//=============================================================================
 void handle_frame(char* buffer, timeval& last_important_traffic)
 {
   // Assume its an Ethernet II frame
@@ -283,8 +288,8 @@ void handle_frame(char* buffer, timeval& last_important_traffic)
   // If needed, byteswap the ports
   if (!is_big_endian)
   {
-    swap16Bit((char*)&source_port);
-    swap16Bit((char*)&destination_port);
+    byteswap((char*)&source_port);
+    byteswap((char*)&destination_port);
   }
 
   // Check both ports against the list of important ports
@@ -305,6 +310,10 @@ void handle_frame(char* buffer, timeval& last_important_traffic)
   usleep(1000000);
 }
 
+//=============================================================================
+// Updates current with the new current time, as well as last_important_traffic
+// if a suspend happened
+//=============================================================================
 void update_times(timeval& current_time, timeval& last_important_traffic)
 {
   // What is the current time?
@@ -326,10 +335,107 @@ void update_times(timeval& current_time, timeval& last_important_traffic)
   memcpy(&current_time, &new_current_time, sizeof(timeval));
 }
 
-void clean_exit(int)
+//=============================================================================
+// Program entry point
+//=============================================================================
+int main(int argc, char** argv)
 {
-  // Log that the service is stopping
-  log.write("Service stopping");
+  // Attach clean_exit to the interrupt signal; users can hit Ctrl+c and stop
+  // the program
+  if (signal(SIGINT, clean_exit) == SIG_ERR)
+  {
+    fprintf(stderr, "Could not attach SIGINT handler\n");
+    return 1;
+  }
 
-  exit(0);
+  // Parse the default file
+  parse_default_file(default_filename);
+
+  // Process the arguments
+  if (!process_arguments(argc, argv))
+  {
+    // TODO: show help message here
+    exit(0);
+  }
+
+  // If this process is to run as a daemon then do it
+  if (daemonize)
+  {
+    if (daemon(0, 0) != 0)
+    {
+      exit(1);
+    }
+  }
+
+  // Parse the config file for important ports
+  parse_config_file(config_filename);
+
+  // Initialize the logging stream
+  std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
+  log.setOutputStream(log_stream);
+
+  // Determine endian-ness of this host
+  unsigned short test_var = 0xff00;
+  is_big_endian = *(unsigned char*)&test_var > 0;
+
+  // Create the socket to sniff frames on
+  LinuxRawSocket sniff_socket;
+  sniff_socket.enableBlocking();
+  sniff_socket.setBlockingTimeout(1.0);
+  sniff_socket.setInputInterface(interface_name);
+
+  // Buffer to sniff data into
+  char buffer[ETH_FRAME_LEN];
+
+  // Initialize current time
+  timeval current_time;
+  gettimeofday(&current_time, 0);
+
+  // This tracks how long its been since the last frame with important traffic
+  // in it was sniffed; initialize to now as well
+  timeval last_important_traffic;
+  gettimeofday(&last_important_traffic, 0);
+
+  // Note this service is starting
+  log.write("Service starting");
+
+  // Start sniffing
+  while(true)
+  {
+    update_times(current_time, last_important_traffic);
+
+    // Sniff a frame; if nothing was read or an error occurred try again
+    if (sniff_socket.read(buffer, ETH_FRAME_LEN) > 0)
+    {
+      handle_frame(buffer, last_important_traffic);
+    }
+
+    update_times(current_time, last_important_traffic);
+    
+    // Determine how long its been since the last important packet was read 
+    if ((get_time(current_time) - get_time(last_important_traffic)) / 60 > idle_timeout)
+    {
+      // It's been too long since the system received important network traffic,
+      // so sleep
+
+      // First, log that we're going to sleep
+      log.write("Timer expired, suspending");
+
+      // Actually go to sleep
+      system("pm-suspend");
+
+      // At this point the process just woke from sleep
+
+      // Log that we just woke up
+      log.write("Resuming from suspend");
+
+      // Reset last important traffic received time to reset the timeout
+      gettimeofday(&last_important_traffic, 0);
+
+      // Dump any data received during the sleep, it's not really that important
+      sniff_socket.clearBuffer();
+    }
+  }
+
+  return 0;
 }
