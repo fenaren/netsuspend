@@ -1,8 +1,6 @@
 // Network-based timed suspend utility
 // Leigh Garbs
 
-#include <iostream>
-
 #include <algorithm>
 #include <csignal>
 #include <cstring>
@@ -94,6 +92,14 @@ bool process_arguments(int argc, char** argv)
       arg++;
 
       interface_name = argv[arg];
+
+      // 'all' specified for an interface means monitor every interface; passing
+      // an empty string to the socket bind function later (which is what will
+      // be done with interface_name) will have this effect
+      if (interface_name == "all")
+      {
+	interface_name = "";
+      }
     }
     // Argument -l specifies a file to log to
     else if (strcmp("-l", argv[arg]) == 0 && arg + 1 < argc)
@@ -189,6 +195,14 @@ void parse_default_file(const std::string& filename)
     if (left_side == "ETH_INTERFACE")
     {
       interface_name = right_side;
+
+      // 'all' specified for an interface means monitor every interface; passing
+      // an empty string to the socket bind function later (which is what will
+      // be done with interface_name) will have this effect
+      if (interface_name == "all")
+      {
+	interface_name = "";
+      }
     }
     else if (left_side == "CONFIG_FILE")
     {
