@@ -35,6 +35,12 @@ bool is_big_endian;
 // Log used to note important events
 Log log;
 
+// The number of kernel jiffies elapsed 
+unsigned int last_jiffy_count = 0;
+
+// The number of idle kernel jiffies elapsed
+unsigned int last_idle_jiffy_count = 0;
+
 
 // THESE CONFIGURATION VARIABLES ARE SET BASED ON THE DEFAULT FILE AND/OR
 // PROGRAM ARGUMENTS
@@ -59,7 +65,16 @@ unsigned int idle_timeout = 15;
 bool user_check_enabled = false;
 
 // Amount of time (in seconds) to wait between user checks
-unsigned int user_check_period = 1;
+unsigned int user_check_period = 10;
+
+// Is the system considered active when the CPU is busy?
+bool cpu_check_enabled = false;
+
+// Amount of time (in seconds) to wait between CPU checks
+unsigned int cpu_check_period = 10;
+
+// CPU usage percentage threshold, below which the CPU is considered idle
+unsigned int cpu_usage_threshold = 5;
 
 
 //=============================================================================
@@ -241,6 +256,20 @@ void parse_default_file(const std::string& filename)
       convert_to_number.str(right_side);
       convert_to_number >> user_check_period;
     }
+    else if (left_side == "CPU_CHECKING")
+    {
+      cpu_check_enabled = right_side == "enabled";
+    }
+    else if (left_side == "CPU_CHECK_PERIOD")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> cpu_check_period;
+    }
+    else if (left_side == "CPU_USAGE_THRESHOLD")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> cpu_usage_threshold;
+    }
   }
 }
 
@@ -364,7 +393,7 @@ void update_times(timeval& current_time, timeval& idle_timer)
 //=============================================================================
 // Determines if any users are logged on
 //=============================================================================
-bool userLoggedOn()
+bool user_logged_on()
 {
   // Run the who command and get a pipe containing its output
   FILE* command_pipe = popen("who | wc -l", "r");
@@ -387,20 +416,89 @@ bool userLoggedOn()
 }
 
 //=============================================================================
-// Program entry point
+// Resets the idle timer if a user is logged in
 //=============================================================================
-void doUserCheck(timeval& current_time,
-		 timeval& idle_timer,
-		 timeval& last_user_check)
+void do_user_check(timeval& last_user_check, timeval& idle_timer)
 {
   // If a user is logged on, reset the idle timer
-  if (userLoggedOn())
+  if (user_logged_on())
   {
     gettimeofday(&idle_timer, 0);
   }
 
   // Mark this time as the last time a user check was performed
   gettimeofday(&last_user_check, 0);
+}
+
+//=============================================================================
+// Determines if the CPU is busy
+//=============================================================================
+bool cpu_is_busy()
+{
+  // Open /proc/stat, this is where the CPU stats are
+  std::ifstream is("/proc/stat", std::ofstream::in);
+
+  // All the aggregate CPU stats are on the first line, the rest will be ignored
+
+  // Read and discard the 'cpu' at the beginning
+  std::string not_used;
+  is >> not_used;
+
+  // Will be filled in by the loop below
+  unsigned int jiffy_count = 0;
+  unsigned int idle_jiffy_count = 0;
+
+  // Get the first three jiffy counts
+  unsigned int temp;
+  for (int i = 0; i < 3; i++)
+  {
+    is >> temp;
+    jiffy_count += temp;
+  }
+
+  // Read the idle jiffy count
+  is >> idle_jiffy_count;
+  jiffy_count += idle_jiffy_count;
+
+  // Get the rest of the jiffy counts
+  for (int i = 0; i < 6; i++)
+  {
+    is >> temp;
+    jiffy_count += temp;
+  }
+
+  // Close /proc/stat
+  is.close();
+  
+  // Now compare the current jiffy counts with the last recorded jiffy counts to
+  // determine idleness
+  unsigned int idle_jiffies_elapsed = idle_jiffy_count - last_idle_jiffy_count;
+  unsigned int jiffies_elapsed = jiffy_count - last_jiffy_count;
+
+  // Compute the usage percentage
+  double usage_pct =
+    (1 - ((double)idle_jiffies_elapsed / (double)jiffies_elapsed)) * 100;
+
+  // Save the jiffy counts that were just calculated
+  last_idle_jiffy_count = idle_jiffy_count;
+  last_jiffy_count = jiffy_count;
+
+  return usage_pct > cpu_usage_threshold;
+}
+
+//=============================================================================
+// Resets the idle timer if the CPU is busy
+//=============================================================================
+void do_cpu_check(timeval& last_cpu_check, timeval& idle_timer)
+{
+  // If the CPU is busy, reset the timer
+  if (cpu_is_busy())
+  {
+    gettimeofday(&idle_timer, 0);    
+  }
+
+  // Mark this time as the last time a user check was performed
+  gettimeofday(&last_cpu_check, 0);
 }
 
 //=============================================================================
@@ -468,6 +566,10 @@ int main(int argc, char** argv)
   timeval last_user_check;
   gettimeofday(&last_user_check, 0);
 
+  // This tracks the last time a CPU check was done
+  timeval last_cpu_check;
+  gettimeofday(&last_cpu_check, 0);
+
   // Note this service is starting
   log.write("Service starting");
 
@@ -480,7 +582,14 @@ int main(int argc, char** argv)
     if (user_check_enabled &&
 	get_time(current_time) - get_time(last_user_check) > user_check_period)
     {
-      doUserCheck(current_time, idle_timer, last_user_check);
+      do_user_check(last_user_check, idle_timer);
+    }
+
+    // Perform a CPU check, if it is enabled and time to do so
+    if (cpu_check_enabled &&
+	get_time(current_time) - get_time(last_cpu_check) > cpu_check_period)
+    {
+      do_cpu_check(last_cpu_check, idle_timer);
     }
 
     // Sniff a frame; if nothing was read or an error occurred try again
