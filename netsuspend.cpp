@@ -7,6 +7,7 @@
 #include <fstream>
 #include <linux/if_ether.h>
 #include <sstream>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -53,6 +54,12 @@ bool daemonize = false;
 // How long netsuspend should allow the computer to remain idle before putting
 // it to sleep
 unsigned int idle_timeout = 15;
+
+// Is the system considered active when a user is logged on?
+bool user_check_enabled = false;
+
+// Amount of time (in seconds) to wait between user checks
+unsigned int user_check_period = 1;
 
 
 //=============================================================================
@@ -191,6 +198,10 @@ void parse_default_file(const std::string& filename)
     std::string right_side = default_line_string.substr(equal_sign + 1,
 							std::string::npos);
 
+    // Clear all convert_to_number flags so it can be used during multiple
+    // passes through this loop
+    convert_to_number.clear();
+
     // Now set the appropriate variable based on what was just parsed
     if (left_side == "ETH_INTERFACE")
     {
@@ -214,19 +225,21 @@ void parse_default_file(const std::string& filename)
     }
     else if (left_side == "DAEMONIZE")
     {
-      if (right_side == "yes")
-      {
-	daemonize = true;
-      }
-      else
-      {
-	daemonize = false;
-      }
+      daemonize = right_side == "yes";
     }
     else if (left_side == "IDLE_TIMEOUT")
     {
       convert_to_number.str(right_side);
       convert_to_number >> idle_timeout;
+    }
+    else if (left_side == "USER_CHECKING")
+    {
+      user_check_enabled = right_side == "enabled";
+    }
+    else if (left_side == "USER_CHECK_PERIOD")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> user_check_period;
     }
   }
 }
@@ -256,7 +269,7 @@ double get_time(const timeval& time)
 //=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
-void handle_frame(char* buffer, timeval& last_important_traffic)
+void handle_frame(char* buffer, timeval& idle_timer)
 {
   // Assume its an Ethernet II frame
   ethernet_ii_header* eth_header = (ethernet_ii_header*)buffer;
@@ -314,9 +327,8 @@ void handle_frame(char* buffer, timeval& last_important_traffic)
     return;
   }
 
-  //This is an important packet, so mark this moment as the last time an
-  //important packet was received
-  gettimeofday(&last_important_traffic, 0);
+  // This is an important packet, so reset the idle timer
+  gettimeofday(&idle_timer, 0);
 
   // In order to limit how much time this process takes up, sleep here for a
   // bit.  This helps limit the processing time this process takes when large
@@ -325,10 +337,10 @@ void handle_frame(char* buffer, timeval& last_important_traffic)
 }
 
 //=============================================================================
-// Updates current with the new current time, as well as last_important_traffic
-// if a suspend happened
+// Updates current with the new current time, as well as idle_timer if a suspend
+// happened
 //=============================================================================
-void update_times(timeval& current_time, timeval& last_important_traffic)
+void update_times(timeval& current_time, timeval& idle_timer)
 {
   // What is the current time?
   timeval new_current_time;
@@ -342,11 +354,53 @@ void update_times(timeval& current_time, timeval& last_important_traffic)
     // Log that this is happening
     log.write("Suspend detected, resetting timer");
 
-    memcpy(&last_important_traffic, &new_current_time, sizeof(timeval));
+    memcpy(&idle_timer, &new_current_time, sizeof(timeval));
   }
 
   // Update current time
   memcpy(&current_time, &new_current_time, sizeof(timeval));
+}
+
+//=============================================================================
+// Determines if any users are logged on
+//=============================================================================
+bool userLoggedOn()
+{
+  // Run the who command and get a pipe containing its output
+  FILE* command_pipe = popen("who | wc -l", "r");
+
+  // Get the command output
+  char buffer[PARSING_BUFFER_LENGTH];
+  fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe);
+
+  // Close the pipe
+  pclose(command_pipe);
+
+  // Convert the command's output into a number
+  std::istringstream convert_to_number;
+  convert_to_number.str(buffer);
+
+  unsigned int number_of_users;
+  convert_to_number >> number_of_users;
+
+  return number_of_users > 0;
+}
+
+//=============================================================================
+// Program entry point
+//=============================================================================
+void doUserCheck(timeval& current_time,
+		 timeval& idle_timer,
+		 timeval& last_user_check)
+{
+  // If a user is logged on, reset the idle timer
+  if (userLoggedOn())
+  {
+    gettimeofday(&idle_timer, 0);
+  }
+
+  // Mark this time as the last time a user check was performed
+  gettimeofday(&last_user_check, 0);
 }
 
 //=============================================================================
@@ -405,10 +459,14 @@ int main(int argc, char** argv)
   timeval current_time;
   gettimeofday(&current_time, 0);
 
-  // This tracks how long its been since the last frame with important traffic
-  // in it was sniffed; initialize to now as well
-  timeval last_important_traffic;
-  gettimeofday(&last_important_traffic, 0);
+  // This tracks the last time the computer was active.  Subtracting it from
+  // current_time yields the amount of idle time
+  timeval idle_timer;
+  gettimeofday(&idle_timer, 0);
+
+  // This tracks the last time a check for logged-in users was done
+  timeval last_user_check;
+  gettimeofday(&last_user_check, 0);
 
   // Note this service is starting
   log.write("Service starting");
@@ -416,18 +474,25 @@ int main(int argc, char** argv)
   // Start sniffing
   while(true)
   {
-    update_times(current_time, last_important_traffic);
+    update_times(current_time, idle_timer);
+
+    // Perform a user check, if it is enabled and time to do so
+    if (user_check_enabled &&
+	get_time(current_time) - get_time(last_user_check) > user_check_period)
+    {
+      doUserCheck(current_time, idle_timer, last_user_check);
+    }
 
     // Sniff a frame; if nothing was read or an error occurred try again
     if (sniff_socket.read(buffer, ETH_FRAME_LEN) > 0)
     {
-      handle_frame(buffer, last_important_traffic);
+      handle_frame(buffer, idle_timer);
     }
 
-    update_times(current_time, last_important_traffic);
+    update_times(current_time, idle_timer);
     
     // Determine how long its been since the last important packet was read 
-    if ((get_time(current_time) - get_time(last_important_traffic)) / 60 > idle_timeout)
+    if ((get_time(current_time) - get_time(idle_timer)) / 60 > idle_timeout)
     {
       // It's been too long since the system received important network traffic,
       // so sleep
@@ -443,8 +508,8 @@ int main(int argc, char** argv)
       // Log that we just woke up
       log.write("Resuming from suspend");
 
-      // Reset last important traffic received time to reset the timeout
-      gettimeofday(&last_important_traffic, 0);
+      // Reset idle timer.  Suspension counts as an activity.
+      gettimeofday(&idle_timer, 0);
 
       // Dump any data received during the sleep, it's not really that important
       sniff_socket.clearBuffer();
