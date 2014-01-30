@@ -2,8 +2,7 @@ SRC := \
 netsuspend.cpp
 
 LIB := \
-log/liblog.a \
-socket/libsocket.a
+toolbox/libtoolbox.a
 
 netsuspend: $(SRC) $(LIB)
-	g++ -Wall -g2 -Isocket -Inetstructs -Ilog -o $@ $^
+	g++ -Wall -g2 -Itoolbox/networking -Itoolbox/logging -o $@ $^
