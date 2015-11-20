@@ -64,14 +64,17 @@ unsigned int idle_timeout = 15;
 // Is the system considered active when a user is logged on?
 bool user_check_enabled = false;
 
-// Amount of time (in seconds) to wait between user checks
-unsigned int user_check_period = 10;
-
 // Is the system considered active when the CPU is busy?
 bool cpu_check_enabled = false;
 
+// Is the system considered active when disks are busy?
+bool disk_check_enabled = false;
+
+// Is the system considered active when network interfaces are busy?
+bool net_check_enabled = false;
+
 // Amount of time (in seconds) to wait between CPU checks
-unsigned int cpu_check_period = 10;
+unsigned int busy_check_period = 10;
 
 // CPU usage percentage threshold, below which the CPU is considered idle
 unsigned int cpu_usage_threshold = 5;
@@ -251,19 +254,19 @@ void parse_default_file(const std::string& filename)
     {
       user_check_enabled = right_side == "enabled";
     }
-    else if (left_side == "USER_CHECK_PERIOD")
+    else if (left_side == "BUSY_CHECK_PERIOD")
     {
       convert_to_number.str(right_side);
-      convert_to_number >> user_check_period;
+      convert_to_number >> busy_check_period;
     }
     else if (left_side == "CPU_CHECKING")
     {
       cpu_check_enabled = right_side == "enabled";
     }
-    else if (left_side == "CPU_CHECK_PERIOD")
+    else if (left_side == "BUSY_CHECK_PERIOD")
     {
       convert_to_number.str(right_side);
-      convert_to_number >> cpu_check_period;
+      convert_to_number >> busy_check_period;
     }
     else if (left_side == "CPU_USAGE_THRESHOLD")
     {
@@ -418,16 +421,13 @@ bool user_logged_on()
 //=============================================================================
 // Resets the idle timer if a user is logged in
 //=============================================================================
-void do_user_check(timeval& last_user_check, timeval& idle_timer)
+void do_user_check(timeval& idle_timer)
 {
   // If a user is logged on, reset the idle timer
   if (user_logged_on())
   {
     gettimeofday(&idle_timer, 0);
   }
-
-  // Mark this time as the last time a user check was performed
-  gettimeofday(&last_user_check, 0);
 }
 
 //=============================================================================
@@ -489,16 +489,53 @@ bool cpu_is_busy()
 //=============================================================================
 // Resets the idle timer if the CPU is busy
 //=============================================================================
-void do_cpu_check(timeval& last_cpu_check, timeval& idle_timer)
+void do_cpu_check(timeval& idle_timer)
 {
   // If the CPU is busy, reset the timer
   if (cpu_is_busy())
   {
     gettimeofday(&idle_timer, 0);    
   }
+}
 
-  // Mark this time as the last time a user check was performed
-  gettimeofday(&last_cpu_check, 0);
+//=============================================================================
+// Determines if the disks are busy
+//=============================================================================
+bool disk_is_busy()
+{
+  return false;
+}
+
+//=============================================================================
+// Resets the idle timer if the disks are busy
+//=============================================================================
+void do_disk_check(timeval& idle_timer)
+{
+  // If the disks are busy, reset the timer
+  if (disk_is_busy())
+  {
+    gettimeofday(&idle_timer, 0);    
+  }
+}
+
+//=============================================================================
+// Determines if the network is busy
+//=============================================================================
+bool net_is_busy()
+{
+  return false;
+}
+
+//=============================================================================
+// Resets the idle timer if the network is busy
+//=============================================================================
+void do_net_check(timeval& idle_timer)
+{
+  // If the network is busy, reset the timer
+  if (net_is_busy())
+  {
+    gettimeofday(&idle_timer, 0);    
+  }
 }
 
 //=============================================================================
@@ -563,12 +600,8 @@ int main(int argc, char** argv)
   gettimeofday(&idle_timer, 0);
 
   // This tracks the last time a check for logged-in users was done
-  timeval last_user_check;
-  gettimeofday(&last_user_check, 0);
-
-  // This tracks the last time a CPU check was done
-  timeval last_cpu_check;
-  gettimeofday(&last_cpu_check, 0);
+  timeval last_busy_check;
+  gettimeofday(&last_busy_check, 0);
 
   // Note this service is starting
   log.write("Service starting");
@@ -578,18 +611,36 @@ int main(int argc, char** argv)
   {
     update_times(current_time, idle_timer);
 
-    // Perform a user check, if it is enabled and time to do so
-    if (user_check_enabled &&
-	get_time(current_time) - get_time(last_user_check) > user_check_period)
+    // Perform busy checks if it's time to do so
+    if (get_time(current_time) - get_time(last_busy_check) > busy_check_period)
     {
-      do_user_check(last_user_check, idle_timer);
-    }
 
-    // Perform a CPU check, if it is enabled and time to do so
-    if (cpu_check_enabled &&
-	get_time(current_time) - get_time(last_cpu_check) > cpu_check_period)
-    {
-      do_cpu_check(last_cpu_check, idle_timer);
+      // Perform a user check if enabled
+      if (user_check_enabled)
+      {
+	do_user_check(idle_timer);
+      }
+
+      // Perform a CPU check if enabled
+      if (cpu_check_enabled)
+      {
+	do_cpu_check(idle_timer);
+      }
+
+      // Perform a disk check if enabled
+      if (disk_check_enabled)
+      {
+	do_disk_check(idle_timer);
+      }
+
+      // Perform a network check if enabled
+      if (net_check_enabled)
+      {
+	do_net_check(idle_timer);
+      }
+
+      // Mark this time as the last time a busy check was performed
+      gettimeofday(&last_busy_check, 0);
     }
 
     // Sniff a frame; if nothing was read or an error occurred try again
