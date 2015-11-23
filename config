@@ -1,0 +1,38 @@
+# netsuspend configuration options
+
+# The interface to monitor for important traffic, 'all' means every interface
+ETH_INTERFACE=all
+
+# Location of the netsuspend log file
+LOG_FILE=/var/log/netsuspend.log
+
+# Whether or not to daemonize by default (can be 'yes' or 'no')
+DAEMONIZE=no
+
+# How long netsuspend should allow the computer to remain idle before putting
+# it to sleep
+IDLE_TIMEOUT=15
+
+# If a user is logged-in, should netsuspend consider the system in-use (i.e.
+# not idle)?  If so, this should be enabled to enable checks for logged-in
+# users.  If a logged-in user is found, netsuspend will reset its idle timer,
+# delaying system suspension.  Can be set to either 'enabled' or 'disabled'.
+USER_CHECKING=disabled
+
+# The length of time (in seconds) between checks for logged-in users.  Has no
+# effect if USER_CHECKING is disabled.
+USER_CHECK_PERIOD=10
+
+# If the CPU is busy, should netsuspend consider the system in-use (i.e. not
+# idle)?  If so, this should be enabled to enable CPU usage checks.  If the
+# CPU is found to be busy, netsuspend will reset its idle timer, delaying
+# system suspension.  Can be set to either enabled or disabled.
+CPU_CHECKING=enabled
+
+# The length of time (in seconds) between CPU checks.  Has no effect if
+# CPU_CHECKING is disabled.
+CPU_CHECK_PERIOD=10
+
+# CPU usage percentage, below which the CPU is considered idle.  Has no
+# effect if CPU_CHECKING is disabled.
+CPU_USAGE_THRESHOLD=5

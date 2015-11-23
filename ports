@@ -1,0 +1,6 @@
+22    ssh
+80    http
+139   Windows networking
+445   Windows networking
+774   nfs
+2049  nfs
