@@ -9,30 +9,42 @@ LOG_FILE=/var/log/netsuspend.log
 # Whether or not to daemonize by default (can be 'yes' or 'no')
 DAEMONIZE=no
 
-# How long netsuspend should allow the computer to remain idle before putting
-# it to sleep
+# How long (in minutes) netsuspend should allow the computer to remain idle before
+# putting it to sleep
 IDLE_TIMEOUT=15
 
-# If a user is logged-in, should netsuspend consider the system in-use (i.e.
-# not idle)?  If so, this should be enabled to enable checks for logged-in
-# users.  If a logged-in user is found, netsuspend will reset its idle timer,
-# delaying system suspension.  Can be set to either 'enabled' or 'disabled'.
+# The length of time (in seconds) between checks business.
+BUSY_CHECK_PERIOD=10
+
+# If a user is logged-in, should netsuspend consider the system in-use (i.e. not
+# idle)?  If so, this should be enabled to enable checks for logged-in users.  If
+# logged-in user is found, netsuspend will reset its idle timer, delaying system
+# suspension.  Can be set to either 'enabled' or 'disabled'.
 USER_CHECKING=disabled
 
-# The length of time (in seconds) between checks for logged-in users.  Has no
-# effect if USER_CHECKING is disabled.
-USER_CHECK_PERIOD=10
-
-# If the CPU is busy, should netsuspend consider the system in-use (i.e. not
-# idle)?  If so, this should be enabled to enable CPU usage checks.  If the
-# CPU is found to be busy, netsuspend will reset its idle timer, delaying
-# system suspension.  Can be set to either enabled or disabled.
+# If the CPU is busy, should netsuspend consider the system in-use (i.e. not idle)?
+# If so, this should be enabled to enable CPU usage checks.  If the CPU is found
+# to be busy, netsuspend will reset its idle timer, delaying system suspension.
+# Can be set to either enabled or disabled.
 CPU_CHECKING=enabled
 
-# The length of time (in seconds) between CPU checks.  Has no effect if
+# CPU usage percentage, below which the CPU is considered idle.  Has no effect if
 # CPU_CHECKING is disabled.
-CPU_CHECK_PERIOD=10
-
-# CPU usage percentage, below which the CPU is considered idle.  Has no
-# effect if CPU_CHECKING is disabled.
 CPU_USAGE_THRESHOLD=5
+
+# If the disk is busy, should netsuspend consider the system in use?
+DISK_CHECKING=enabled
+
+# Disk usage percentage, below which the disk is considered idle.  Each disk listed
+# in the disks file is checked against this threshold.  If any one of them is
+# busier than this threshold the disk is considered in use.
+DISK_USAGE_THRESHOLD=5
+
+# If the network is busy should netsuspend consider the system in use?
+NET_CHECKING=enabled
+
+# Network data transfer rate, below which the network is considered idle.  Upload
+# and download transfer rates on each interface in the interfaces file are checked
+# against this threshold.  If any checked rates are above this threshold the
+# network is considered busy.
+NET_USAGE_THRESHOLD=1000000

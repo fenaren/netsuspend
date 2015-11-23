@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstring>
 #include <fstream>
+#include <iostream>
 #include <linux/if_ether.h>
 #include <sstream>
 #include <stdio.h>
@@ -24,7 +25,13 @@
 
 
 // Filename of the default settings file, typically located in /etc/default
-std::string default_filename = "/etc/default/netsuspend";
+std::string default_filename = "config";
+
+// Filename of the file containing what interfaces to monitor
+std::string interfaces_filename = "interfaces";
+
+// Filename of the file containing what disks to monitor
+std::string disks_filename = "disks";
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
@@ -78,6 +85,13 @@ unsigned int busy_check_period = 10;
 
 // CPU usage percentage threshold, below which the CPU is considered idle
 unsigned int cpu_usage_threshold = 5;
+
+// Disk usage percentage threshold, below which the disk is considered idle
+unsigned int disk_usage_threshold = 5;
+
+// Network usage threshold, below which the disk is considered idle.  Given in
+// bits per second
+unsigned int net_usage_threshold = 1000000;
 
 
 //=============================================================================
@@ -254,14 +268,17 @@ void parse_default_file(const std::string& filename)
     {
       user_check_enabled = right_side == "enabled";
     }
-    else if (left_side == "BUSY_CHECK_PERIOD")
-    {
-      convert_to_number.str(right_side);
-      convert_to_number >> busy_check_period;
-    }
     else if (left_side == "CPU_CHECKING")
     {
       cpu_check_enabled = right_side == "enabled";
+    }
+    else if (left_side == "DISK_CHECKING")
+    {
+      disk_check_enabled = right_side == "enabled";
+    }
+    else if (left_side == "NET_CHECKING")
+    {
+      net_check_enabled = right_side == "enabled";
     }
     else if (left_side == "BUSY_CHECK_PERIOD")
     {
@@ -272,6 +289,16 @@ void parse_default_file(const std::string& filename)
     {
       convert_to_number.str(right_side);
       convert_to_number >> cpu_usage_threshold;
+    }
+    else if (left_side == "DISK_USAGE_THRESHOLD")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> disk_usage_threshold;
+    }
+    else if (left_side == "NET_USAGE_THRESHOLD")
+    {
+      convert_to_number.str(right_side);
+      convert_to_number >> net_usage_threshold;
     }
   }
 }
