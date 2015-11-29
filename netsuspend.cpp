@@ -20,18 +20,27 @@
 #include "ipv4_header.h"
 
 
-// Length of the input buffers used during config and default file parsing
+// Length of the input buffers used during parsing
 #define PARSING_BUFFER_LENGTH 1000
 
 
-// Filename of the default settings file, typically located in /etc/default
-std::string default_filename = "config";
+// Filename of the config file, typically located in /etc/netsuspend
+std::string config_filename = "/etc/netsuspend/config";
 
-// Filename of the file containing what interfaces to monitor
-std::string interfaces_filename = "interfaces";
+// Filename of the file containing what interfaces to monitor for bandwidth;
+// this file DOES NOT specify the interfaces on which to snoop for important
+// traffic
+std::string interfaces_filename = "/etc/netsuspend/interfaces";
 
 // Filename of the file containing what disks to monitor
-std::string disks_filename = "disks";
+std::string disks_filename = "/etc/netsuspend/disks";
+
+// Filename of the config file, typically located in /etc
+std::string ports_filename = "/etc/netsuspend/ports";
+
+// Filename of the log file, typically located in /var/log
+std::string log_filename = "/var/log/netsuspend.log";
+
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
@@ -49,17 +58,9 @@ unsigned int last_jiffy_count = 0;
 unsigned int last_idle_jiffy_count = 0;
 
 
-// THESE CONFIGURATION VARIABLES ARE SET BASED ON THE DEFAULT FILE AND/OR
-// PROGRAM ARGUMENTS
-
 // Name of the interface on which proxying will take place
 std::string interface_name = "eth0";
 
-// Filename of the config file, typically located in /etc
-std::string config_filename = "/etc/netsuspend.conf";
-
-// Filename of the log file, typically located in /var/log
-std::string log_filename = "/var/log/netsuspend.log";
 
 // Whether or not this process should daemonize
 bool daemonize = false;
@@ -118,12 +119,33 @@ bool process_arguments(int argc, char** argv)
     {
       daemonize = true;
     }
-    // Argument -c specifies an alternative config file
-    else if (strcmp("-c", argv[arg]) == 0 && arg + 1 < argc)
+    // Argument --config specifies an alternative config file
+    else if (strcmp("--config", argv[arg]) == 0 && arg + 1 < argc)
     {
       arg++;
 
       config_filename = argv[arg];
+    }
+    // Argument --ports specifies an alternative ports file
+    else if (strcmp("--ports", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      arg++;
+
+      ports_filename = argv[arg];
+    }
+    // Argument --disks specifies an alternative disks file
+    else if (strcmp("--disks", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      arg++;
+
+      disks_filename = argv[arg];
+    }
+    // Argument --interfaces specifies an alternative interfaces file
+    else if (strcmp("--interfaces", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      arg++;
+
+      interfaces_filename = argv[arg];
     }
     // Argument -i specifies an interface to monitor
     else if (strcmp("-i", argv[arg]) == 0 && arg + 1 < argc)
@@ -140,8 +162,8 @@ bool process_arguments(int argc, char** argv)
 	interface_name = "";
       }
     }
-    // Argument -l specifies a file to log to
-    else if (strcmp("-l", argv[arg]) == 0 && arg + 1 < argc)
+    // Argument --log specifies a file to log to
+    else if (strcmp("--log", argv[arg]) == 0 && arg + 1 < argc)
     {
       arg++;
 
@@ -156,78 +178,78 @@ bool process_arguments(int argc, char** argv)
 //=============================================================================
 // Parses configuration file
 //=============================================================================
-void parse_config_file(const std::string& filename)
+void parse_ports_file(const std::string& filename)
 {
-  // Open the configuration file
-  std::fstream config_file(filename.c_str());
+  // Open the ports file
+  std::fstream ports_file(filename.c_str());
 
   // Read all the lines out of it
-  while(!config_file.eof())
+  while(!ports_file.eof())
   {
     // Read a port number
     unsigned short port;
-    config_file >> port;
+    ports_file >> port;
 
     // Push the valid port number onto the list if the read was successful
-    if (config_file.good())
+    if (ports_file.good())
     {
       ports.push_back(port);
     }
 
     // Clear any error bits
-    config_file.clear();
+    ports_file.clear();
 
     // Discard the rest of the line
     char buf = '\0';
-    while (!config_file.eof() && buf != '\n')
+    while (!ports_file.eof() && buf != '\n')
     {
-      config_file.get(buf);
+      ports_file.get(buf);
     }
   }
 }
 
 //=============================================================================
-// Parses default file
+// Parses config file
 //=============================================================================
-void parse_default_file(const std::string& filename)
+void parse_config_file(const std::string& filename)
 {
-  // Open the defaults file
-  std::ifstream default_stream(filename.c_str());
+  // Open the config file
+  std::ifstream config_stream(filename.c_str());
 
   // Initialize some stuff to be used during parsing
-  char default_line_buffer[PARSING_BUFFER_LENGTH];
+  char config_line_buffer[PARSING_BUFFER_LENGTH];
   std::istringstream convert_to_number;
 
-  // Read the entire defaults file
-  while(!default_stream.eof())
+  // Read the entire config file
+  while(!config_stream.eof())
   {
     // Read a line of the file
-    default_stream.getline(default_line_buffer, PARSING_BUFFER_LENGTH);
+    config_stream.getline(config_line_buffer, PARSING_BUFFER_LENGTH);
 
     // Convert it to a string
-    std::string default_line_string = default_line_buffer;
+    std::string config_line_string = config_line_buffer;
 
     // Ignore the line if it's a comment
-    if (default_line_string[0] == '#')
+    if (config_line_string[0] == '#')
     {
       continue;
     }
 
     // Search through the line for a '='
-    size_t equal_sign = default_line_string.find('=');
+    size_t equal_sign = config_line_string.find('=');
 
     // If there isn't an equal sign, or the equal sign is at the beginning or
     // end of the buffer, just go to the next line because this line is bad
     if (equal_sign == std::string::npos ||
 	equal_sign == 0 ||
-	equal_sign == default_line_string.length())
+	equal_sign == config_line_string.length())
     {
       continue;
     }
 
     // Pull out the strings on the left and right of the equal sign
-    std::string left_side  = default_line_string.substr(0, equal_sign);
-    std::string right_side = default_line_string.substr(equal_sign + 1,
+    std::string left_side  = config_line_string.substr(0, equal_sign);
+    std::string right_side = config_line_string.substr(equal_sign + 1,
 							std::string::npos);
 
     // Clear all convert_to_number flags so it can be used during multiple
@@ -246,10 +268,6 @@ void parse_default_file(const std::string& filename)
       {
 	interface_name = "";
       }
-    }
-    else if (left_side == "CONFIG_FILE")
-    {
-      config_filename = right_side;
     }
     else if (left_side == "LOG_FILE")
     {
@@ -578,8 +596,8 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Parse the default file
-  parse_default_file(default_filename);
+  // Parse the config file
+  parse_config_file(config_filename);
 
   // Process the arguments
   if (!process_arguments(argc, argv))
@@ -598,7 +616,7 @@ int main(int argc, char** argv)
   }
 
   // Parse the config file for important ports
-  parse_config_file(config_filename);
+  parse_ports_file(ports_filename);
 
   // Initialize the logging stream
   std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
