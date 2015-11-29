@@ -45,6 +45,12 @@ std::string log_filename = "/var/log/netsuspend.log";
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
 
+// List of interfaces to monitor for bandwidth
+std::vector<std::string> interfaces;
+
+// List of disks to monitor for business
+std::vector<std::string> disks;
+
 // Is host computer big endian?
 bool is_big_endian;
 
@@ -318,6 +324,38 @@ void parse_config_file(const std::string& filename)
       convert_to_number.str(right_side);
       convert_to_number >> net_usage_threshold;
     }
+  }
+}
+
+//=============================================================================
+// Parses interfaces file
+//=============================================================================
+void parse_interfaces_file(const std::string& filename)
+{
+  std::ifstream interfaces_stream(filename.c_str());
+
+  // Read the entire interfaces file
+  while(!interfaces_stream.eof())
+  {
+    std::string interface;
+    interfaces_stream >> interface;
+    interfaces.push_back(interface);
+  }
+}
+
+//=============================================================================
+// Parses disks file
+//=============================================================================
+void parse_disks_file(const std::string& filename)
+{
+  std::ifstream disks_stream(filename.c_str());
+
+  // Read the entire interfaces file
+  while(!disks_stream.eof())
+  {
+    std::string disk;
+    disks_stream >> disk;
+    disks.push_back(disk);
   }
 }
 
@@ -596,15 +634,25 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  // Parse the config file
-  parse_config_file(config_filename);
-
   // Process the arguments
   if (!process_arguments(argc, argv))
   {
     // TODO: show help message here
     exit(0);
   }
+
+  // Parse the config file
+  parse_config_file(config_filename);
+
+  // Parse the config file for important ports
+  parse_ports_file(ports_filename);
+
+  // Parse the config file for important ports
+  parse_interfaces_file(interfaces_filename);
+
+  // Parse the config file for important ports
+  parse_disks_file(disks_filename);
+
 
   // If this process is to run as a daemon then do it
   if (daemonize)
@@ -614,9 +662,6 @@ int main(int argc, char** argv)
       exit(1);
     }
   }
-
-  // Parse the config file for important ports
-  parse_ports_file(ports_filename);
 
   // Initialize the logging stream
   std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
