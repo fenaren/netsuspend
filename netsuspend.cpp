@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <linux/if_ether.h>
+#include <map>
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,15 @@ std::string ports_filename = "/etc/netsuspend/ports";
 std::string log_filename = "/var/log/netsuspend.log";
 
 
+// This struct holds all the data we have to track per-disk
+struct Disk
+{
+  unsigned long last_read_time_ms;
+
+  bool last_read_time_good;
+};
+
+
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
 
@@ -49,7 +59,7 @@ std::vector<unsigned short> ports;
 std::vector<std::string> interfaces;
 
 // List of disks to monitor for business
-std::vector<std::string> disks;
+std::map<std::string, Disk> disks;
 
 // Is host computer big endian?
 bool is_big_endian;
@@ -355,7 +365,13 @@ void parse_disks_file(const std::string& filename)
   {
     std::string disk;
     disks_stream >> disk;
-    disks.push_back(disk);
+
+    // Initialize a Disk structure for this disk
+    Disk diskparams;
+    diskparams.last_read_time_ms = 0;
+    diskparams.last_read_time_good = false;
+
+    disks[disk] = diskparams;
   }
 }
 
@@ -586,7 +602,80 @@ void do_cpu_check(timeval& idle_timer)
 //=============================================================================
 bool disk_is_busy()
 {
-  return false;
+  // Open /proc/diskstats, this is the file we're going to check
+  std::ifstream diskstats_stream("/proc/diskstats");
+
+  // Initialize some stuff to be used during parsing
+  char diskstats_line_buffer[PARSING_BUFFER_LENGTH];
+
+  // Will be set true if a disk is busy
+  bool is_busy = false;
+
+  // Read the entire config file
+  while(!diskstats_stream.eof())
+  {
+    // Read a line of the file
+    diskstats_stream.getline(diskstats_line_buffer, PARSING_BUFFER_LENGTH);
+
+    // Does this line correspond to any of the disks we're supposed to be
+    // monitoring?
+
+    // First thing to do is compare the disk on this line to all the disks we're
+    // supposed to monitor
+    std::istringstream diskstats_line_stream(diskstats_line_buffer);
+    std::string disk;
+    diskstats_line_stream >> disk >> disk >> disk;
+
+    // If disk is empty then we're probably reading the last empty line.  At any
+    // rate don't consider this line
+    if (disk.empty())
+    {
+      continue;
+    }
+
+    for (std::map<std::string, Disk>::iterator i = disks.begin();
+	 i != disks.end();
+	 i++)
+    {
+      // See if this disk is one we're supposed to monitor
+      if (i->first == disk)
+      {
+	// Read out the 10th field
+	std::string read_time_ms_str;
+	for (unsigned int j = 0; j < 10; j++)
+	{
+	  diskstats_line_stream >> read_time_ms_str;
+	}
+
+	std::istringstream convert_to_number(read_time_ms_str);
+	unsigned long read_time_ms;
+	convert_to_number >> read_time_ms;
+
+	// Only check disk usage time if the counter hasn't overflowed
+	if (read_time_ms >= i->second.last_read_time_ms)
+	{
+	  // What's the time disk usage pct?
+	  double usage_pct =
+	    static_cast<double>(read_time_ms - i->second.last_read_time_ms) /
+	    1000.0 /
+	    static_cast<double>(busy_check_period) *
+	    100.0;
+
+	  // Is this disk busy?
+	  if (i->second.last_read_time_good && usage_pct > disk_usage_threshold)
+	  {
+	    is_busy = true;
+	  }
+	}
+
+	// Set things up to work during the next check
+	i->second.last_read_time_ms = read_time_ms;
+	i->second.last_read_time_good = true;
+      }
+    }
+  }
+
+  return is_busy;
 }
 
 //=============================================================================
