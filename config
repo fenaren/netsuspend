@@ -7,7 +7,7 @@ ETH_INTERFACE=all
 LOG_FILE=/var/log/netsuspend.log
 
 # Whether or not to daemonize by default (can be 'yes' or 'no')
-DAEMONIZE=no
+#DAEMONIZE=no
 
 # How long (in minutes) netsuspend should allow the computer to remain idle before
 # putting it to sleep

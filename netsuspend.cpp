@@ -886,7 +886,6 @@ int main(int argc, char** argv)
     // Perform busy checks if it's time to do so
     if (get_time(current_time) - get_time(last_busy_check) > busy_check_period)
     {
-
       // Perform a user check if enabled
       if (user_check_enabled)
       {
