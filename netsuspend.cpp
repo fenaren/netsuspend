@@ -51,12 +51,21 @@ struct Disk
   bool last_read_time_good;
 };
 
+// This struct holds all the data we have to track per network interface
+struct Interface
+{
+  unsigned long last_bytes_read;
+  unsigned long last_bytes_written;
+
+  bool last_bytes_good;
+};
+
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
 
 // List of interfaces to monitor for bandwidth
-std::vector<std::string> interfaces;
+std::map<std::string, Interface> interfaces;
 
 // List of disks to monitor for business
 std::map<std::string, Disk> disks;
@@ -349,7 +358,14 @@ void parse_interfaces_file(const std::string& filename)
   {
     std::string interface;
     interfaces_stream >> interface;
-    interfaces.push_back(interface);
+
+    // Initialize an Interface structure for this interface
+    Interface interfaceparams;
+    interfaceparams.last_bytes_read = 0;
+    interfaceparams.last_bytes_written = 0;
+    interfaceparams.last_bytes_good = false;
+
+    interfaces[interface] = interfaceparams;
   }
 }
 
@@ -695,7 +711,84 @@ void do_disk_check(timeval& idle_timer)
 //=============================================================================
 bool net_is_busy()
 {
-  return false;
+  // Open /proc/net/dev, this is the file we're going to check
+  std::ifstream netstats_stream("/proc/net/dev");
+
+  // Initialize some stuff to be used during parsing
+  char netstats_line_buffer[PARSING_BUFFER_LENGTH];
+
+  // Will be set true if a network interface is busy
+  bool is_busy = false;
+
+  // The first two lines of this file aren't useful so read and discard them
+  netstats_stream.getline(netstats_line_buffer, PARSING_BUFFER_LENGTH);
+  netstats_stream.getline(netstats_line_buffer, PARSING_BUFFER_LENGTH);
+
+  // Read the entire file
+  while(!netstats_stream.eof())
+  {
+    // Read a line of the file
+    netstats_stream.getline(netstats_line_buffer, PARSING_BUFFER_LENGTH);
+
+    // Does this line correspond to any of the interfaces we're supposed to be
+    // monitoring?
+
+    // First thing to do is compare the interface on this line to all the disks
+    // we're supposed to monitor
+    std::istringstream netstats_line_stream(netstats_line_buffer);
+    std::string interface;
+    netstats_line_stream >> interface;
+    if (interface.empty())
+    {
+      continue;
+    }
+
+    // Get rid of the colon on the end
+    interface = interface.substr(0, interface.length() - 1);
+
+    // Does this interface match any of the interfaces we're supposed to be
+    // watching for?
+    std::map<std::string, Interface>::iterator i = interfaces.find(interface);
+    if (i != interfaces.end())
+    {
+      unsigned long bytes_read = 0;
+      unsigned long bytes_written= 0;
+
+      netstats_line_stream >> bytes_read;
+
+      // Discard the next 7 fields and keep the 8th, that's the # of bytes
+      // written
+      for (unsigned int j = 0; j < 8; j++)
+      {
+	netstats_line_stream >> bytes_written;
+      }
+
+      // Come up with the average number of bytes written per second over the
+      // last "busy_check_period" seconds
+      double avg_bytes_read =
+	static_cast<double>(bytes_read - i->second.last_bytes_read) /
+	static_cast<double>(busy_check_period);
+      double avg_bytes_written =
+	static_cast<double>(bytes_written - i->second.last_bytes_written) /
+	static_cast<double>(busy_check_period);
+
+      // If we've read or written more than the threshold and we have a good
+      // last value to base this calculation on, then the network is busy
+      if (i->second.last_bytes_good &&
+	  (avg_bytes_read > net_usage_threshold ||
+	   avg_bytes_written > net_usage_threshold))
+      {
+	is_busy = true;
+      }
+
+      // Save state for the next iteration
+      i->second.last_bytes_read = bytes_read;
+      i->second.last_bytes_written = bytes_written;
+      i->second.last_bytes_good = true;
+    }
+  }
+
+  return is_busy;
 }
 
 //=============================================================================

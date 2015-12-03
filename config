@@ -47,4 +47,4 @@ NET_CHECKING=enabled
 # and download transfer rates on each interface in the interfaces file are checked
 # against this threshold.  If any checked rates are above this threshold the
 # network is considered busy.
-NET_USAGE_THRESHOLD=1000000
+NET_USAGE_THRESHOLD=100000
