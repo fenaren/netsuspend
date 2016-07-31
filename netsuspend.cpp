@@ -815,13 +815,22 @@ void do_net_check(timeval& idle_timer)
 //=============================================================================
 int main(int argc, char** argv)
 {
-  // Attach clean_exit to the interrupt signal; users can hit Ctrl+c and stop
-  // the program
+  // Attach clean_exit to the interrupt and kill signals; users can hit Ctrl+c and
+  // stop the program
   if (signal(SIGINT, clean_exit) == SIG_ERR)
   {
     fprintf(stderr, "Could not attach SIGINT handler\n");
     return 1;
   }
+
+  if (signal(SIGTERM, clean_exit) == SIG_ERR)
+  {
+    fprintf(stderr, "Could not attach SIGTERM handler\n");
+    return 1;
+  }
+
+  // Parse the config file
+  parse_config_file(config_filename);
 
   // Process the arguments
   if (!process_arguments(argc, argv))
@@ -829,9 +838,6 @@ int main(int argc, char** argv)
     // TODO: show help message here
     exit(0);
   }
-
-  // Parse the config file
-  parse_config_file(config_filename);
 
   // Parse the config file for important ports
   parse_ports_file(ports_filename);
