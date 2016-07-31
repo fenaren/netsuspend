@@ -94,6 +94,9 @@ bool daemonize = false;
 // it to sleep
 unsigned int idle_timeout = 15;
 
+// The command to run when idle_timeout elapses
+std::string timeout_cmd = "pm-suspend";
+
 // Is the system considered active when a user is logged on?
 bool user_check_enabled = false;
 
@@ -306,6 +309,10 @@ void parse_config_file(const std::string& filename)
     {
       convert_to_number.str(right_side);
       convert_to_number >> idle_timeout;
+    }
+    else if (left_side == "TIMEOUT_CMD")
+    {
+      timeout_cmd = right_side;
     }
     else if (left_side == "USER_CHECKING")
     {
@@ -848,6 +855,7 @@ int main(int argc, char** argv)
   // Initialize the logging stream
   std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
   log.setOutputStream(log_stream);
+  log.flushAfterWrite(true);
 
   // Determine endian-ness of this host
   unsigned short test_var = 0xff00;
@@ -929,15 +937,15 @@ int main(int argc, char** argv)
       // so sleep
 
       // First, log that we're going to sleep
-      log.write("Timer expired, suspending");
+      log.write("Timer expired, running " + timeout_cmd);
 
       // Actually go to sleep
-      system("pm-suspend");
+      system(timeout_cmd.c_str());
 
       // At this point the process just woke from sleep
 
       // Log that we just woke up
-      log.write("Resuming from suspend");
+      log.write("Returning from " + timeout_cmd);
 
       // Reset idle timer.  Suspension counts as an activity.
       gettimeofday(&idle_timer, 0);

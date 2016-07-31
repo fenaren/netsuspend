@@ -13,6 +13,11 @@ LOG_FILE=/var/log/netsuspend.log
 # putting it to sleep
 IDLE_TIMEOUT=15
 
+# The command that should be run when IDLE_TIMEOUT elapses.  This is intended to be
+# something that will put the system into a low-power state but could any command
+TIMEOUT_CMD=pm-suspend
+#TIMEOUT_CMD=pm-hibernate
+
 # The length of time (in seconds) between checks business.
 BUSY_CHECK_PERIOD=10
 
