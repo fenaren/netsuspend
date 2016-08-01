@@ -862,6 +862,7 @@ int main(int argc, char** argv)
   std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
   log.setOutputStream(log_stream);
   log.flushAfterWrite(true);
+  log.useLocalTime();
 
   // Determine endian-ness of this host
   unsigned short test_var = 0xff00;
