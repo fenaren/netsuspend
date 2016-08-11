@@ -1,5 +1,5 @@
 netsuspend: netsuspend.cpp toolbox/libtoolbox.a
-	g++ -Wall -g2 -Itoolbox/networking -Itoolbox/misc -o $@ $^
+	@g++ -Wall -g2 -Itoolbox/networking -Itoolbox/misc -o $@ $^
 
 clean:
 	@rm -f netsuspend

@@ -25,23 +25,16 @@
 #define PARSING_BUFFER_LENGTH 1000
 
 
-// Filename of the config file, typically located in /etc/netsuspend
-std::string config_filename = "/etc/netsuspend/config";
-
-// Filename of the file containing what interfaces to monitor for bandwidth;
-// this file DOES NOT specify the interfaces on which to snoop for important
-// traffic
-std::string interfaces_filename = "/etc/netsuspend/interfaces";
-
-// Filename of the file containing what disks to monitor
-std::string disks_filename = "/etc/netsuspend/disks";
-
-// Filename of the config file, typically located in /etc
-std::string ports_filename = "/etc/netsuspend/ports";
-
-// Filename of the log file, typically located in /var/log
-std::string log_filename = "/var/log/netsuspend.log";
-
+enum IdleTimerResetReason
+{
+  NET_IMPORTANT_TRAFFIC_RECEIVED,
+  NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED,
+  DISK_BANDWIDTH_THRESHOLD_EXCEEDED,
+  CPU_USAGE_THRESHOLD_EXCEEDED,
+  USER_LOGGED_ON,
+  IDLE_TIMER_EXPIRED,
+  PROGRAM_START
+};
 
 // This struct holds all the data we have to track per-disk
 struct Disk
@@ -59,6 +52,24 @@ struct Interface
 
   bool last_bytes_good;
 };
+
+
+// Filename of the config file, typically located in /etc/netsuspend
+std::string config_filename = "/etc/netsuspend/config";
+
+// Filename of the file containing what interfaces to monitor for bandwidth;
+// this file DOES NOT specify the interfaces on which to snoop for important
+// traffic
+std::string interfaces_filename = "/etc/netsuspend/interfaces";
+
+// Filename of the file containing what disks to monitor
+std::string disks_filename = "/etc/netsuspend/disks";
+
+// Filename of the config file, typically located in /etc
+std::string ports_filename = "/etc/netsuspend/ports";
+
+// Filename of the log file, typically located in /var/log
+std::string log_filename = "/var/log/netsuspend.log";
 
 
 // Stores a list of all important ports
@@ -121,6 +132,12 @@ unsigned int disk_usage_threshold = 5;
 // Network usage threshold, below which the disk is considered idle.  Given in
 // bits per second
 unsigned int net_usage_threshold = 1000000;
+
+// Is verbose logging enabled?
+bool verbose_logging_enabled = false;
+
+// Why was the last idle timer reset done?
+IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
 
 
 //=============================================================================
@@ -196,6 +213,11 @@ bool process_arguments(int argc, char** argv)
       arg++;
 
       log_filename = argv[arg];
+    }
+    // Argument --verbose-log means to log more information
+    else if (strcmp("--verbose-log", argv[arg]) == 0)
+    {
+      verbose_logging_enabled = true;
     }
   }
 
@@ -484,6 +506,8 @@ void handle_frame(char* buffer, timeval& idle_timer)
   // This is an important packet, so reset the idle timer
   gettimeofday(&idle_timer, 0);
 
+  last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC_RECEIVED;
+
   // In order to limit how much time this process takes up, sleep here for a
   // bit.  This helps limit the processing time this process takes when large
   // transfers of important traffic are being done.
@@ -616,7 +640,9 @@ void do_cpu_check(timeval& idle_timer)
   // If the CPU is busy, reset the timer
   if (cpu_is_busy())
   {
-    gettimeofday(&idle_timer, 0);    
+    gettimeofday(&idle_timer, 0);
+
+    last_idle_timer_reset_reason = CPU_USAGE_THRESHOLD_EXCEEDED;
   }
 }
 
@@ -709,7 +735,9 @@ void do_disk_check(timeval& idle_timer)
   // If the disks are busy, reset the timer
   if (disk_is_busy())
   {
-    gettimeofday(&idle_timer, 0);    
+    gettimeofday(&idle_timer, 0);
+
+    last_idle_timer_reset_reason = DISK_BANDWIDTH_THRESHOLD_EXCEEDED;
   }
 }
 
@@ -806,7 +834,9 @@ void do_net_check(timeval& idle_timer)
   // If the network is busy, reset the timer
   if (net_is_busy())
   {
-    gettimeofday(&idle_timer, 0);    
+    gettimeofday(&idle_timer, 0);
+
+    last_idle_timer_reset_reason = NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED;
   }
 }
 
@@ -890,6 +920,11 @@ int main(int argc, char** argv)
   timeval last_busy_check;
   gettimeofday(&last_busy_check, 0);
 
+  // This tracks the last time a verbose log entry was written
+  timeval last_verbose_log_entry;
+  gettimeofday(&last_verbose_log_entry, 0);
+
+
   // Note this service is starting
   log.write("Service starting");
 
@@ -936,6 +971,63 @@ int main(int argc, char** argv)
     }
 
     update_times(current_time, idle_timer);
+
+    // If verbose logging is enabled here is where we see if it's time to write a
+    // verbose log entry
+    if (verbose_logging_enabled)
+    {
+      if (get_time(current_time) - get_time(last_verbose_log_entry) > 30)
+      {
+	// How long have we been idle?
+	double idle_time = get_time(current_time) - get_time(idle_timer);
+
+	// Build the verbose log entry
+	std::stringstream to_string("Idle timer ");
+	to_string.precision(2);
+	to_string << idle_time / 60.0 << "/" << idle_timeout
+		  << " minutes, last idle timer reset for ";
+	switch(last_idle_timer_reset_reason)
+	{
+	case NET_IMPORTANT_TRAFFIC_RECEIVED:
+	  to_string << "important network traffic received";
+	  break;
+
+	case NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED:
+	  to_string << "network interface bandwidth exceeded";
+	  break;
+
+	case DISK_BANDWIDTH_THRESHOLD_EXCEEDED:
+	  to_string << "disk bandwidth exceeded";
+	  break;
+
+	case CPU_USAGE_THRESHOLD_EXCEEDED:
+	  to_string << "CPU usage threshold exceeded";
+	  break;
+
+	case USER_LOGGED_ON:
+	  to_string << "user logged on";
+	  break;
+
+	case PROGRAM_START:
+	  to_string << "program start";
+	  break;
+
+	case IDLE_TIMER_EXPIRED:
+	  to_string << "idle timer expired";
+	  break;
+
+	default:
+	  to_string << "an unknown reason";
+	  break;
+	}
+
+	// Write the verbose log entry
+	log.write(to_string.str());
+
+	// Reset the verbose log entry timer
+	gettimeofday(&last_verbose_log_entry, 0);
+      }
+    }
     
     // Determine how long its been since the last important packet was read 
     if ((get_time(current_time) - get_time(idle_timer)) / 60 > idle_timeout)
@@ -956,6 +1048,7 @@ int main(int argc, char** argv)
 
       // Reset idle timer.  Suspension counts as an activity.
       gettimeofday(&idle_timer, 0);
+      last_idle_timer_reset_reason = IDLE_TIMER_EXPIRED;
 
       // Dump any data received during the sleep, it's not really that important
       sniff_socket.clearBuffer();
