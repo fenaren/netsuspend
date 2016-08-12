@@ -972,8 +972,8 @@ int main(int argc, char** argv)
 
     update_times(current_time, idle_timer);
 
-    // If verbose logging is enabled here is where we see if it's time to write a
-    // verbose log entry
+    // If verbose logging is enabled here is where we see if it's time to write
+    // averbose log entry
     if (verbose_logging_enabled)
     {
       if (get_time(current_time) - get_time(last_verbose_log_entry) > 30)
@@ -982,22 +982,23 @@ int main(int argc, char** argv)
 	double idle_time = get_time(current_time) - get_time(idle_timer);
 
 	// Build the verbose log entry
-	std::stringstream to_string("Idle timer ");
-	to_string.precision(2);
-	to_string << idle_time / 60.0 << "/" << idle_timeout
-		  << " minutes, last idle timer reset for ";
+	std::stringstream to_string;
+	to_string.precision(1);
+	to_string << std::fixed << "Idle timer " << idle_time / 60.0 << " / "
+		  << idle_timeout << " min, last reset for ";
+       
 	switch(last_idle_timer_reset_reason)
 	{
 	case NET_IMPORTANT_TRAFFIC_RECEIVED:
-	  to_string << "important network traffic received";
+	  to_string << "important network traffic";
 	  break;
 
 	case NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED:
-	  to_string << "network interface bandwidth exceeded";
+	  to_string << "network interface bandwidth threshold exceeded";
 	  break;
 
 	case DISK_BANDWIDTH_THRESHOLD_EXCEEDED:
-	  to_string << "disk bandwidth exceeded";
+	  to_string << "disk bandwidth threshold exceeded";
 	  break;
 
 	case CPU_USAGE_THRESHOLD_EXCEEDED:
@@ -1013,7 +1014,7 @@ int main(int argc, char** argv)
 	  break;
 
 	case IDLE_TIMER_EXPIRED:
-	  to_string << "idle timer expired";
+	  to_string << "idle timer expiration";
 	  break;
 
 	default:
