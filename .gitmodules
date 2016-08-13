@@ -1,2 +1,3 @@
 [submodule "toolbox"]
+        path = toolbox
         url = /home/leigh/repos/toolbox.git
