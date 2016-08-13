@@ -5,4 +5,4 @@ clean:
 	@rm -f netsuspend
 
 toolbox/libtoolbox.a:
-	make -C toolbox libtoolbox.a
+	@make -C toolbox libtoolbox.a
