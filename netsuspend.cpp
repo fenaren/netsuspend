@@ -27,7 +27,7 @@
 
 enum IdleTimerResetReason
 {
-  NET_IMPORTANT_TRAFFIC_RECEIVED,
+  NET_IMPORTANT_TRAFFIC,
   NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED,
   DISK_BANDWIDTH_THRESHOLD_EXCEEDED,
   CPU_USAGE_THRESHOLD_EXCEEDED,
@@ -504,7 +504,7 @@ void handle_frame(char* buffer, timeval& idle_timer)
   // This is an important packet, so reset the idle timer
   gettimeofday(&idle_timer, 0);
 
-  last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC_RECEIVED;
+  last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC;
 
   // In order to limit how much time this process takes up, sleep here for a
   // bit.  This helps limit the processing time this process takes when large
@@ -987,7 +987,7 @@ int main(int argc, char** argv)
 
         switch(last_idle_timer_reset_reason)
         {
-        case NET_IMPORTANT_TRAFFIC_RECEIVED:
+        case NET_IMPORTANT_TRAFFIC:
           to_string << "important network traffic";
           break;
 
