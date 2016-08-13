@@ -225,6 +225,18 @@ bool process_arguments(int argc, char** argv)
   return true;
 }
 
+//==============================================================================
+// Converts binary IP address to a string representation
+//==============================================================================
+void ip_to_string(const unsigned char* const ip,
+                  std::string&               ip_str)
+{
+  char ip_cstr[16];
+  sprintf(ip_cstr, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+
+  ip_str = ip_cstr;
+}
+
 //=============================================================================
 // Parses configuration file
 //=============================================================================
@@ -445,7 +457,11 @@ double get_time(const timeval& time)
 //=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
-void handle_frame(char* buffer, timeval& idle_timer)
+void handle_frame(char*           buffer,
+                  timeval&        idle_timer,
+                  char*           last_important_ip,
+                  unsigned short& last_important_source_port,
+                  unsigned short& last_important_destination_port)
 {
   // Assume its an Ethernet II frame
   ethernet_ii_header* eth_header = (ethernet_ii_header*)buffer;
@@ -494,12 +510,21 @@ void handle_frame(char* buffer, timeval& idle_timer)
   }
 
   // Check both ports against the list of important ports
-  if (std::find(ports.begin(), ports.end(), source_port)      == ports.end() &&
-      std::find(ports.begin(), ports.end(), destination_port) == ports.end())
+  if (std::find(ports.begin(), ports.end(), source_port) != ports.end() ||
+      std::find(ports.begin(), ports.end(), destination_port) != ports.end())
+  {
+    // Save data on this in case verbose logging is enabled
+    last_important_source_port = source_port;
+    last_important_destination_port = destination_port;
+  }
+  else
   {
     // Traffic is not important, leave
     return;
   }
+
+  // Save data on this in case verbose logging is enabled
+  memcpy(last_important_ip, ip_header->source_ip, 4);
 
   // This is an important packet, so reset the idle timer
   gettimeofday(&idle_timer, 0);
@@ -922,6 +947,10 @@ int main(int argc, char** argv)
   timeval last_verbose_log_entry;
   gettimeofday(&last_verbose_log_entry, 0);
 
+  // Stores IP and port info on the last important piece of network traffic
+  char last_important_ip[4];
+  unsigned short last_important_source_port = 0;
+  unsigned short last_important_destination_port = 0;
 
   // Note this service is starting
   log.write("Service starting");
@@ -965,7 +994,11 @@ int main(int argc, char** argv)
     // Sniff a frame; if nothing was read or an error occurred try again
     if (sniff_socket.read(buffer, ETH_FRAME_LEN) > 0)
     {
-      handle_frame(buffer, idle_timer);
+      handle_frame(buffer,
+                   idle_timer,
+                   last_important_ip,
+                   last_important_source_port,
+                   last_important_destination_port);
     }
 
     update_times(current_time, idle_timer);
@@ -988,9 +1021,17 @@ int main(int argc, char** argv)
         switch(last_idle_timer_reset_reason)
         {
         case NET_IMPORTANT_TRAFFIC:
-          to_string << "important network traffic";
-          break;
+        {
+          to_string << "important network traffic (src ip ";
 
+          // Get the IP address as a string
+          std::string ip_string;
+          ip_to_string((unsigned char*)last_important_ip, ip_string);
+
+          to_string << ip_string << ", src port " << last_important_source_port
+                    << ", dst port " << last_important_destination_port << ")";
+          break;
+        }
         case NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED:
           to_string << "network interface bandwidth threshold exceeded";
           break;
