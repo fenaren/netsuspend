@@ -204,7 +204,7 @@ bool process_arguments(int argc, char** argv)
       // be done with interface_name) will have this effect
       if (interface_name == "all")
       {
-	interface_name = "";
+        interface_name = "";
       }
     }
     // Argument --log specifies a file to log to
@@ -291,8 +291,8 @@ void parse_config_file(const std::string& filename)
     // If there isn't an equal sign, or the equal sign is at the beginning or
     // end of the buffer, just go to the next line because this line is bad
     if (equal_sign == std::string::npos ||
-	equal_sign == 0 ||
-	equal_sign == config_line_string.length())
+        equal_sign == 0 ||
+        equal_sign == config_line_string.length())
     {
       continue;
     }
@@ -300,7 +300,7 @@ void parse_config_file(const std::string& filename)
     // Pull out the strings on the left and right of the equal sign
     std::string left_side  = config_line_string.substr(0, equal_sign);
     std::string right_side = config_line_string.substr(equal_sign + 1,
-							std::string::npos);
+                                                       std::string::npos);
 
     // Clear all convert_to_number flags so it can be used during multiple
     // passes through this loop
@@ -316,7 +316,7 @@ void parse_config_file(const std::string& filename)
       // be done with interface_name) will have this effect
       if (interface_name == "all")
       {
-	interface_name = "";
+        interface_name = "";
       }
     }
     else if (left_side == "LOG_FILE")
@@ -456,9 +456,7 @@ void handle_frame(char* buffer, timeval& idle_timer)
   ipv4_type[1] = 0x00;
 
   // Ignore any non-IPv4 traffic
-  if (memcmp(eth_header->ethertype,
-	       (void*)ipv4_type,
-	       2) != 0)
+  if (memcmp(eth_header->ethertype, (void*)ipv4_type, 2) != 0)
   {
     return;
   }
@@ -481,7 +479,7 @@ void handle_frame(char* buffer, timeval& idle_timer)
 
   // Save a pointer to the start of the IPv4 payload
   char* ip_payload = buffer + sizeof(ethernet_ii_header) + ip_headerlen;
-  
+
   // Extract the destination port
   unsigned short source_port = *(unsigned short*)ip_payload;
 
@@ -615,7 +613,7 @@ bool cpu_is_busy()
 
   // Close /proc/stat
   is.close();
-  
+
   // Now compare the current jiffy counts with the last recorded jiffy counts to
   // determine idleness
   unsigned int idle_jiffies_elapsed = idle_jiffy_count - last_idle_jiffy_count;
@@ -683,43 +681,43 @@ bool disk_is_busy()
     }
 
     for (std::map<std::string, Disk>::iterator i = disks.begin();
-	 i != disks.end();
-	 i++)
+         i != disks.end();
+         i++)
     {
       // See if this disk is one we're supposed to monitor
       if (i->first == disk)
       {
-	// Read out the 10th field
-	std::string read_time_ms_str;
-	for (unsigned int j = 0; j < 10; j++)
-	{
-	  diskstats_line_stream >> read_time_ms_str;
-	}
+        // Read out the 10th field
+        std::string read_time_ms_str;
+        for (unsigned int j = 0; j < 10; j++)
+        {
+          diskstats_line_stream >> read_time_ms_str;
+        }
 
-	std::istringstream convert_to_number(read_time_ms_str);
-	unsigned long read_time_ms;
-	convert_to_number >> read_time_ms;
+        std::istringstream convert_to_number(read_time_ms_str);
+        unsigned long read_time_ms;
+        convert_to_number >> read_time_ms;
 
-	// Only check disk usage time if the counter hasn't overflowed
-	if (read_time_ms >= i->second.last_read_time_ms)
-	{
-	  // What's the time disk usage pct?
-	  double usage_pct =
-	    static_cast<double>(read_time_ms - i->second.last_read_time_ms) /
-	    1000.0 /
-	    static_cast<double>(busy_check_period) *
-	    100.0;
+        // Only check disk usage time if the counter hasn't overflowed
+        if (read_time_ms >= i->second.last_read_time_ms)
+        {
+          // What's the time disk usage pct?
+          double usage_pct =
+            static_cast<double>(read_time_ms - i->second.last_read_time_ms) /
+            1000.0 /
+            static_cast<double>(busy_check_period) *
+            100.0;
 
-	  // Is this disk busy?
-	  if (i->second.last_read_time_good && usage_pct > disk_usage_threshold)
-	  {
-	    is_busy = true;
-	  }
-	}
+          // Is this disk busy?
+          if (i->second.last_read_time_good && usage_pct > disk_usage_threshold)
+          {
+            is_busy = true;
+          }
+        }
 
-	// Set things up to work during the next check
-	i->second.last_read_time_ms = read_time_ms;
-	i->second.last_read_time_good = true;
+        // Set things up to work during the next check
+        i->second.last_read_time_ms = read_time_ms;
+        i->second.last_read_time_good = true;
       }
     }
   }
@@ -795,25 +793,25 @@ bool net_is_busy()
       // written
       for (unsigned int j = 0; j < 8; j++)
       {
-	netstats_line_stream >> bytes_written;
+        netstats_line_stream >> bytes_written;
       }
 
       // Come up with the average number of bytes written per second over the
       // last "busy_check_period" seconds
       double avg_bytes_read =
-	static_cast<double>(bytes_read - i->second.last_bytes_read) /
-	static_cast<double>(busy_check_period);
+        static_cast<double>(bytes_read - i->second.last_bytes_read) /
+        static_cast<double>(busy_check_period);
       double avg_bytes_written =
-	static_cast<double>(bytes_written - i->second.last_bytes_written) /
-	static_cast<double>(busy_check_period);
+        static_cast<double>(bytes_written - i->second.last_bytes_written) /
+        static_cast<double>(busy_check_period);
 
       // If we've read or written more than the threshold and we have a good
       // last value to base this calculation on, then the network is busy
       if (i->second.last_bytes_good &&
-	  (avg_bytes_read > net_usage_threshold ||
-	   avg_bytes_written > net_usage_threshold))
+          (avg_bytes_read > net_usage_threshold ||
+           avg_bytes_written > net_usage_threshold))
       {
-	is_busy = true;
+        is_busy = true;
       }
 
       // Save state for the next iteration
@@ -939,25 +937,25 @@ int main(int argc, char** argv)
       // Perform a user check if enabled
       if (user_check_enabled)
       {
-	do_user_check(idle_timer);
+        do_user_check(idle_timer);
       }
 
       // Perform a CPU check if enabled
       if (cpu_check_enabled)
       {
-	do_cpu_check(idle_timer);
+        do_cpu_check(idle_timer);
       }
 
       // Perform a disk check if enabled
       if (disk_check_enabled)
       {
-	do_disk_check(idle_timer);
+        do_disk_check(idle_timer);
       }
 
       // Perform a network check if enabled
       if (net_check_enabled)
       {
-	do_net_check(idle_timer);
+        do_net_check(idle_timer);
       }
 
       // Mark this time as the last time a busy check was performed
@@ -978,59 +976,59 @@ int main(int argc, char** argv)
     {
       if (get_time(current_time) - get_time(last_verbose_log_entry) > 30)
       {
-	// How long have we been idle?
-	double idle_time = get_time(current_time) - get_time(idle_timer);
+        // How long have we been idle?
+        double idle_time = get_time(current_time) - get_time(idle_timer);
 
-	// Build the verbose log entry
-	std::stringstream to_string;
-	to_string.precision(1);
-	to_string << std::fixed << "Idle timer " << idle_time / 60.0 << " / "
-		  << idle_timeout << " min, last reset for ";
-       
-	switch(last_idle_timer_reset_reason)
-	{
-	case NET_IMPORTANT_TRAFFIC_RECEIVED:
-	  to_string << "important network traffic";
-	  break;
+        // Build the verbose log entry
+        std::stringstream to_string;
+        to_string.precision(1);
+        to_string << std::fixed << "Idle timer " << idle_time / 60.0 << " / "
+                  << idle_timeout << " min, last reset for ";
 
-	case NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED:
-	  to_string << "network interface bandwidth threshold exceeded";
-	  break;
+        switch(last_idle_timer_reset_reason)
+        {
+        case NET_IMPORTANT_TRAFFIC_RECEIVED:
+          to_string << "important network traffic";
+          break;
 
-	case DISK_BANDWIDTH_THRESHOLD_EXCEEDED:
-	  to_string << "disk bandwidth threshold exceeded";
-	  break;
+        case NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED:
+          to_string << "network interface bandwidth threshold exceeded";
+          break;
 
-	case CPU_USAGE_THRESHOLD_EXCEEDED:
-	  to_string << "CPU usage threshold exceeded";
-	  break;
+        case DISK_BANDWIDTH_THRESHOLD_EXCEEDED:
+          to_string << "disk bandwidth threshold exceeded";
+          break;
 
-	case USER_LOGGED_ON:
-	  to_string << "user logged on";
-	  break;
+        case CPU_USAGE_THRESHOLD_EXCEEDED:
+          to_string << "CPU usage threshold exceeded";
+          break;
 
-	case PROGRAM_START:
-	  to_string << "program start";
-	  break;
+        case USER_LOGGED_ON:
+          to_string << "user logged on";
+          break;
 
-	case IDLE_TIMER_EXPIRED:
-	  to_string << "idle timer expiration";
-	  break;
+        case PROGRAM_START:
+          to_string << "program start";
+          break;
 
-	default:
-	  to_string << "an unknown reason";
-	  break;
-	}
+        case IDLE_TIMER_EXPIRED:
+          to_string << "idle timer expiration";
+          break;
 
-	// Write the verbose log entry
-	log.write(to_string.str());
+        default:
+          to_string << "an unknown reason";
+          break;
+        }
 
-	// Reset the verbose log entry timer
-	gettimeofday(&last_verbose_log_entry, 0);
+        // Write the verbose log entry
+        log.write(to_string.str());
+
+        // Reset the verbose log entry timer
+        gettimeofday(&last_verbose_log_entry, 0);
       }
     }
-    
-    // Determine how long its been since the last important packet was read 
+
+    // Determine how long its been since the last important packet was read
     if ((get_time(current_time) - get_time(idle_timer)) / 60 > idle_timeout)
     {
       // It's been too long since the system received important network traffic,
