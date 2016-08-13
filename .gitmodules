@@ -1,3 +1,6 @@
-[submodule "toolbox"]
-	path = toolbox
-	url = /home/leigh/code/toolbox
+[submodule "toolbox_tower"]
+           path = toolbox
+           url = tower:/home/leigh/repos/toolbox.git
+[submodule "toolbox_myip"]
+           path = toolbox
+           url = myip:/home/leigh/repos/toolbox.git
