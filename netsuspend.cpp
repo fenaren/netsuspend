@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <vector>
 
@@ -71,6 +72,9 @@ std::string ports_filename = "/etc/netsuspend/ports";
 // Filename of the log file, typically located in /var/log
 std::string log_filename = "/var/log/netsuspend.log";
 
+// Filename of the file in which PID is stored
+std::string pid_filename = "/var/run/netsuspend.pid";
+
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
@@ -87,7 +91,7 @@ bool is_big_endian;
 // Log used to note important events
 Log log;
 
-// The number of kernel jiffies elapsed 
+// The number of kernel jiffies elapsed
 unsigned int last_jiffy_count = 0;
 
 // The number of idle kernel jiffies elapsed
@@ -148,7 +152,23 @@ void clean_exit(int)
   // Log that the service is stopping
   log.write("Service stopping");
 
+  // Delete the PID file
+  unlink(pid_filename.c_str());
+
   exit(0);
+}
+
+//=============================================================================
+// Writes the PID of the calling process to file
+//=============================================================================
+void write_pid_to_file(const std::string& pid_filename)
+{
+    // Get the PID
+    int pid = getpid();
+
+    std::ofstream out_stream(pid_filename.c_str());
+    out_stream << pid << "\n";
+    out_stream.close();
 }
 
 //=============================================================================
@@ -192,6 +212,14 @@ bool process_arguments(int argc, char** argv)
 
       interfaces_filename = argv[arg];
     }
+    // Argument --pidfile specifies an alternative PID file
+    else if (strcmp("--pidfile", argv[arg]) == 0 && arg + 1 < argc)
+    {
+      arg++;
+
+      pid_filename = argv[arg];
+    }
+
     // Argument -i specifies an interface to monitor
     else if (strcmp("-i", argv[arg]) == 0 && arg + 1 < argc)
     {
@@ -335,6 +363,11 @@ void parse_config_file(const std::string& filename)
     {
       log_filename = right_side;
     }
+    else if (left_side == "PID_FILE")
+    {
+      pid_filename = right_side;
+    }
+
     else if (left_side == "DAEMONIZE")
     {
       daemonize = right_side == "yes";
@@ -910,6 +943,9 @@ int main(int argc, char** argv)
       exit(1);
     }
   }
+
+  // Write our PID to file
+  write_pid_to_file(pid_filename);
 
   // Initialize the logging stream
   std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
