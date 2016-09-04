@@ -88,6 +88,9 @@ std::map<std::string, Disk> disks;
 // Is host computer big endian?
 bool is_big_endian;
 
+// File that logging will go to
+std::ofstream log_stream;
+
 // Log used to note important events
 Log log;
 
@@ -145,12 +148,37 @@ IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
 
 
 //=============================================================================
+// Closes the log file; used before log rotation and on shutdown
+//=============================================================================
+void close_log(int)
+{
+  log.write("Closing log file");
+  log_stream.close();
+}
+
+//=============================================================================
+// Opens the log file; used after log rotation and during startup
+//=============================================================================
+void open_log(int)
+{
+  log_stream.open(log_filename.c_str(), std::ofstream::app);
+
+  log.setOutputStream(log_stream);
+  log.flushAfterWrite(true);
+  log.useLocalTime();
+
+  log.write("Log file open");
+}
+
+//=============================================================================
 // Performs any clean up that must be done before the program halts
 //=============================================================================
 void clean_exit(int)
 {
   // Log that the service is stopping
   log.write("Service stopping");
+
+  close_log(0);
 
   // Delete the PID file
   unlink(pid_filename.c_str());
@@ -901,17 +929,35 @@ void do_net_check(timeval& idle_timer)
 //=============================================================================
 int main(int argc, char** argv)
 {
-  // Attach clean_exit to the interrupt and kill signals; users can hit Ctrl+c and
-  // stop the program
-  if (signal(SIGINT, clean_exit) == SIG_ERR)
+  struct sigaction act;
+  act.sa_handler = clean_exit;
+  act.sa_flags = 0;
+
+  // Attach clean_exit to the interrupt and kill signals; users can hit Ctrl+c
+  // and stop the program
+  if (sigaction(SIGINT, &act, 0) == -1)
   {
     fprintf(stderr, "Could not attach SIGINT handler\n");
     return 1;
   }
 
-  if (signal(SIGTERM, clean_exit) == SIG_ERR)
+  if (sigaction(SIGTERM, &act, 0) == -1)
   {
     fprintf(stderr, "Could not attach SIGTERM handler\n");
+    return 1;
+  }
+
+  act.sa_handler = close_log;
+  if (sigaction(SIGUSR1, &act, 0) == -1)
+  {
+    fprintf(stderr, "Could not attach SIGUSR1 handler\n");
+    return 1;
+  }
+
+  act.sa_handler = open_log;
+  if (sigaction(SIGUSR2, &act, 0) == -1)
+  {
+    fprintf(stderr, "Could not attach SIGUSR2 handler\n");
     return 1;
   }
 
@@ -948,10 +994,7 @@ int main(int argc, char** argv)
   write_pid_to_file(pid_filename);
 
   // Initialize the logging stream
-  std::ofstream log_stream(log_filename.c_str(), std::ofstream::app);
-  log.setOutputStream(log_stream);
-  log.flushAfterWrite(true);
-  log.useLocalTime();
+  open_log(0);
 
   // Determine endian-ness of this host
   unsigned short test_var = 0xff00;
