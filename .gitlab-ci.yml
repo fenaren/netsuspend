@@ -1,6 +1,4 @@
-stages:
-  - build
-
-make:
+build_job:
   stage: build
-  script: "make"
+  script:
+  - make
