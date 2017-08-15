@@ -1,0 +1,6 @@
+stages:
+  - build
+
+make:
+  stage: build
+  script: "make"
