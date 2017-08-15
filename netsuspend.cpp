@@ -21,10 +21,8 @@
 #include "ethernet_ii_header.h"
 #include "ipv4_header.h"
 
-
 // Length of the input buffers used during parsing
 #define PARSING_BUFFER_LENGTH 1000
-
 
 enum IdleTimerResetReason
 {
@@ -54,7 +52,6 @@ struct Interface
   bool last_bytes_good;
 };
 
-
 // Filename of the config file, typically located in /etc/netsuspend
 std::string config_filename = "/etc/netsuspend/config";
 
@@ -74,7 +71,6 @@ std::string log_filename = "/var/log/netsuspend.log";
 
 // Filename of the file in which PID is stored
 std::string pid_filename = "/var/run/netsuspend.pid";
-
 
 // Stores a list of all important ports
 std::vector<unsigned short> ports;
@@ -100,10 +96,8 @@ unsigned int last_jiffy_count = 0;
 // The number of idle kernel jiffies elapsed
 unsigned int last_idle_jiffy_count = 0;
 
-
 // Name of the interface on which proxying will take place
 std::string interface_name = "eth0";
-
 
 // Whether or not this process should daemonize
 bool daemonize = false;
@@ -145,7 +139,6 @@ bool verbose_logging_enabled = false;
 
 // Why was the last idle timer reset done?
 IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
-
 
 //=============================================================================
 // Closes the log file; used before log rotation and on shutdown
