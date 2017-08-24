@@ -138,6 +138,9 @@ unsigned int net_usage_threshold = 1000000;
 // Is verbose logging enabled?
 bool verbose_logging_enabled = false;
 
+// If true, traffic from ourselves is never considered important
+bool ignore_own_traffic = false;
+
 // Why was the last idle timer reset done?
 IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
 
@@ -267,6 +270,12 @@ bool process_arguments(int argc, char** argv)
         else if (strcmp("--verbose-log", argv[arg]) == 0)
         {
             verbose_logging_enabled = true;
+        }
+        // Argument --ignore-own-traffic means all traffic originating from us
+        // is not important
+        else if (strcmp("--ignore-own-traffic", argv[arg]) == 0)
+        {
+            ignore_own_traffic = true;
         }
     }
 
@@ -438,6 +447,10 @@ void parse_config_file(const std::string& filename)
         {
             convert_to_number.str(right_side);
             convert_to_number >> net_usage_threshold;
+        }
+        else if (left_side == "IGNORE_OWN_TRAFFIC")
+        {
+            ignore_own_traffic = right_side == "yes";
         }
     }
 }
