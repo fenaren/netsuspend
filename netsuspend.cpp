@@ -633,17 +633,27 @@ void update_times(timeval& current_time, timeval& idle_timer)
 //=============================================================================
 // Determines if any users are logged on
 //=============================================================================
-bool user_logged_on()
+bool user_logged_on(bool& logged_on)
 {
     // Run the who command and get a pipe containing its output
     FILE* command_pipe = popen("who | wc -l", "r");
+    if (command_pipe == NULL)
+    {
+        return false;
+    }
 
     // Get the command output
     char buffer[PARSING_BUFFER_LENGTH];
-    fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe);
+    if (fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe) == NULL)
+    {
+        return false;
+    }
 
     // Close the pipe
-    pclose(command_pipe);
+    if (pclose(command_pipe) == -1)
+    {
+        return false;
+    }
 
     // Convert the command's output into a number
     std::istringstream convert_to_number;
@@ -652,7 +662,9 @@ bool user_logged_on()
     unsigned int number_of_users;
     convert_to_number >> number_of_users;
 
-    return number_of_users > 0;
+    logged_on = number_of_users > 0;
+
+    return true;
 }
 
 //=============================================================================
@@ -660,8 +672,11 @@ bool user_logged_on()
 //=============================================================================
 void do_user_check(timeval& idle_timer)
 {
+    bool logged_on = false;
+    bool user_check_success = user_logged_on(logged_on);
+
     // If a user is logged on, reset the idle timer
-    if (user_logged_on())
+    if (user_check_success && logged_on)
     {
         gettimeofday(&idle_timer, 0);
     }
@@ -1169,7 +1184,13 @@ int main(int argc, char** argv)
             log.write("Timer expired, running " + timeout_cmd);
 
             // Actually go to sleep
-            system(timeout_cmd.c_str());
+            if (system(timeout_cmd.c_str()) == -1)
+            {
+                // Something went wrong; there are other return codes that could
+                // be handled here but -1 is the only one I'm sure is actually
+                // an error
+                log.writeError("Sleep command could not be properly executed");
+            }
 
             // At this point the process just woke from sleep
 

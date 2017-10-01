@@ -15,6 +15,7 @@ build:
   # before_script: 
   #   - apt update && apt -y install make autoconf 
   script: 
+    - cmake -DCMAKE_BUILD_TYPE=Release .
     - make
   #artifacts:
   #  paths:
