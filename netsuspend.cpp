@@ -82,6 +82,12 @@ std::map<std::string, Interface> interfaces;
 // List of disks to monitor for business
 std::map<std::string, Disk> disks;
 
+// Populated with the contents of /sys/power/state
+std::vector<std::string> supported_sleep_states;
+
+// Index into supported_sleep_states; represents the user's chosen sleep state
+int sleep_state_inuse = -1;
+
 // Is host computer big endian?
 bool is_big_endian;
 
@@ -106,9 +112,6 @@ bool daemonize = false;
 // How long netsuspend should allow the computer to remain idle before putting
 // it to sleep
 unsigned int idle_timeout = 15;
-
-// The command to run when idle_timeout elapses
-std::string timeout_cmd = "pm-suspend";
 
 // Is the system considered active when a user is logged on?
 bool user_check_enabled = false;
@@ -206,6 +209,12 @@ bool process_arguments(int argc, char** argv)
         {
             daemonize = true;
         }
+        // Argument -F sets the program to run in the foreground; do not
+        // daemonize
+        else if (strcmp("-F", argv[arg]) == 0)
+        {
+            daemonize = false;
+        }
         // Argument --config specifies an alternative config file
         else if (strcmp("--config", argv[arg]) == 0 && arg + 1 < argc)
         {
@@ -290,7 +299,7 @@ void ip_to_string(const unsigned char* const ip,
 //=============================================================================
 // Parses configuration file
 //=============================================================================
-void parse_ports_file(const std::string& filename)
+void process_ports_file(const std::string& filename)
 {
     // Open the ports file
     std::fstream ports_file(filename.c_str());
@@ -323,7 +332,7 @@ void parse_ports_file(const std::string& filename)
 //=============================================================================
 // Parses config file
 //=============================================================================
-void parse_config_file(const std::string& filename)
+void process_config_file(const std::string& filename)
 {
     // Open the config file
     std::ifstream config_stream(filename.c_str());
@@ -399,9 +408,17 @@ void parse_config_file(const std::string& filename)
             convert_to_number.str(right_side);
             convert_to_number >> idle_timeout;
         }
-        else if (left_side == "TIMEOUT_CMD")
+        else if (left_side == "SLEEP_STATE")
         {
-            timeout_cmd = right_side;
+            // Search supported_sleep_states for the named sleep state
+            for (unsigned int i = 0; i < supported_sleep_states.size(); i++)
+            {
+                if (supported_sleep_states[i] == right_side)
+                {
+                    chosen_sleep_state = i;
+                    break;
+                }
+            }
         }
         else if (left_side == "USER_CHECKING")
         {
@@ -445,7 +462,7 @@ void parse_config_file(const std::string& filename)
 //=============================================================================
 // Parses interfaces file
 //=============================================================================
-void parse_interfaces_file(const std::string& filename)
+void process_interfaces_file(const std::string& filename)
 {
     std::ifstream interfaces_stream(filename.c_str());
 
@@ -468,7 +485,7 @@ void parse_interfaces_file(const std::string& filename)
 //=============================================================================
 // Parses disks file
 //=============================================================================
-void parse_disks_file(const std::string& filename)
+void process_disks_file(const std::string& filename)
 {
     std::ifstream disks_stream(filename.c_str());
 
@@ -938,6 +955,29 @@ void do_net_check(timeval& idle_timer)
 }
 
 //=============================================================================
+// Reads /sys/power/state and stores each word to supported_sleep_states
+//=============================================================================
+void discover_supported_sleep_states(
+    std::vector<std::string>& supported_sleep_states)
+{
+    // Get rid of whatever is already in there
+    supported_sleep_states.clear();
+
+    std::ifstream sys_power_state("/sys/power/state");
+    while (!sys_power_state.eof())
+    {
+        std::string sleep_state;
+        sys_power_state >> sleep_state;
+
+        // The last read is usually empty
+        if (!sleep_state.empty())
+        {
+            supported_sleep_states.push_back(sleep_state);
+        }
+    }
+}
+
+//=============================================================================
 // Program entry point
 //=============================================================================
 int main(int argc, char** argv)
@@ -974,8 +1014,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Populate supported sleep states with what this system supports
+    discover_supported_sleep_states(supported_sleep_states);
+
     // Parse the config file
-    parse_config_file(config_filename);
+    process_config_file(config_filename);
 
     // Process the arguments
     if (!process_arguments(argc, argv))
@@ -985,13 +1028,13 @@ int main(int argc, char** argv)
     }
 
     // Parse the config file for important ports
-    parse_ports_file(ports_filename);
+    process_ports_file(ports_filename);
 
     // Parse the config file for important ports
-    parse_interfaces_file(interfaces_filename);
+    process_interfaces_file(interfaces_filename);
 
     // Parse the config file for important ports
-    parse_disks_file(disks_filename);
+    process_disks_file(disks_filename);
 
     // If this process is to run as a daemon then do it
     if (daemonize)
@@ -1168,21 +1211,21 @@ int main(int argc, char** argv)
             // traffic, so sleep
 
             // First, log that we're going to sleep
-            log.write("Timer expired, running " + timeout_cmd);
+            //log.write("Timer expired, sleeping (" + sleep_state + ")");
 
             // Actually go to sleep
-            if (system(timeout_cmd.c_str()) == -1)
-            {
+            //if (system(timeout_cmd.c_str()) == -1)
+            //{
                 // Something went wrong; there are other return codes that could
                 // be handled here but -1 is the only one I'm sure is actually
                 // an error
-                log.writeError("Sleep command could not be properly executed");
-            }
+            //    log.writeError("Sleep command could not be properly executed");
+            //}
 
             // At this point the process just woke from sleep
 
             // Log that we just woke up
-            log.write("Returning from " + timeout_cmd);
+            //log.write("Returning from sleep (" + sleep_state + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
             gettimeofday(&idle_timer, 0);
