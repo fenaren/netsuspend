@@ -11,8 +11,8 @@
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <vector>
 
@@ -519,18 +519,18 @@ void byteswap(char* data)
 }
 
 //=============================================================================
-// Returns a double representation of a timeval timestamp
+// Returns a double representation of a timespec timestamp
 //=============================================================================
-double get_time(const timeval& time)
+double get_time(const timespec& time)
 {
-    return time.tv_sec + static_cast<double>(time.tv_usec) / 1e6;
+    return time.tv_sec + static_cast<double>(time.tv_nsec) / 1e9;
 }
 
 //=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
 void handle_frame(char*           buffer,
-                  timeval&        idle_timer,
+                  timespec&       idle_timer,
                   char*           last_important_ip,
                   unsigned short& last_important_source_port,
                   unsigned short& last_important_destination_port)
@@ -599,7 +599,7 @@ void handle_frame(char*           buffer,
     memcpy(last_important_ip, ip_header->source_ip, 4);
 
     // This is an important packet, so reset the idle timer
-    gettimeofday(&idle_timer, 0);
+    clock_gettime(CLOCK_MONOTONIC, &idle_timer);
 
     last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC;
 
@@ -613,11 +613,11 @@ void handle_frame(char*           buffer,
 // Updates current with the new current time, as well as idle_timer if a suspend
 // happened
 //=============================================================================
-void update_times(timeval& current_time, timeval& idle_timer)
+void update_times(timespec& current_time, timespec& idle_timer)
 {
     // What is the current time?
-    timeval new_current_time;
-    gettimeofday(&new_current_time, 0);
+    timespec new_current_time;
+    clock_gettime(CLOCK_MONOTONIC, &new_current_time);
 
     // If it been over 5 seconds since the last time the current time was
     // checked, assume the computer this process is running on was suspended and
@@ -627,11 +627,11 @@ void update_times(timeval& current_time, timeval& idle_timer)
         // Log that this is happening
         log.write("Suspend detected, resetting timer");
 
-        memcpy(&idle_timer, &new_current_time, sizeof(timeval));
+        memcpy(&idle_timer, &new_current_time, sizeof(timespec));
     }
 
     // Update current time
-    memcpy(&current_time, &new_current_time, sizeof(timeval));
+    memcpy(&current_time, &new_current_time, sizeof(timespec));
 }
 
 //=============================================================================
@@ -674,7 +674,7 @@ bool user_logged_on(bool& logged_on)
 //=============================================================================
 // Resets the idle timer if a user is logged in
 //=============================================================================
-void do_user_check(timeval& idle_timer)
+void do_user_check(timespec& idle_timer)
 {
     bool logged_on = false;
     bool user_check_success = user_logged_on(logged_on);
@@ -682,7 +682,7 @@ void do_user_check(timeval& idle_timer)
     // If a user is logged on, reset the idle timer
     if (user_check_success && logged_on)
     {
-        gettimeofday(&idle_timer, 0);
+        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
     }
 }
 
@@ -746,12 +746,12 @@ bool cpu_is_busy()
 //=============================================================================
 // Resets the idle timer if the CPU is busy
 //=============================================================================
-void do_cpu_check(timeval& idle_timer)
+void do_cpu_check(timespec& idle_timer)
 {
     // If the CPU is busy, reset the timer
     if (cpu_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
 
         last_idle_timer_reset_reason = CPU_USAGE_THRESHOLD_EXCEEDED;
     }
@@ -843,12 +843,12 @@ bool disk_is_busy()
 //=============================================================================
 // Resets the idle timer if the disks are busy
 //=============================================================================
-void do_disk_check(timeval& idle_timer)
+void do_disk_check(timespec& idle_timer)
 {
     // If the disks are busy, reset the timer
     if (disk_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
 
         last_idle_timer_reset_reason = DISK_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
@@ -943,12 +943,12 @@ bool net_is_busy()
 //=============================================================================
 // Resets the idle timer if the network is busy
 //=============================================================================
-void do_net_check(timeval& idle_timer)
+void do_net_check(timespec& idle_timer)
 {
     // If the network is busy, reset the timer
     if (net_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
 
         last_idle_timer_reset_reason = NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
@@ -1065,21 +1065,21 @@ int main(int argc, char** argv)
     char buffer[ETH_FRAME_LEN];
 
     // Initialize current time
-    timeval current_time;
-    gettimeofday(&current_time, 0);
+    timespec current_time;
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
 
     // This tracks the last time the computer was active.  Subtracting it from
     // current_time yields the amount of idle time
-    timeval idle_timer;
-    gettimeofday(&idle_timer, 0);
+    timespec idle_timer;
+    clock_gettime(CLOCK_MONOTONIC, &idle_timer);
 
     // This tracks the last time a check for logged-in users was done
-    timeval last_busy_check;
-    gettimeofday(&last_busy_check, 0);
+    timespec last_busy_check;
+    clock_gettime(CLOCK_MONOTONIC, &last_busy_check);
 
     // This tracks the last time a verbose log entry was written
-    timeval last_verbose_log_entry;
-    gettimeofday(&last_verbose_log_entry, 0);
+    timespec last_verbose_log_entry;
+    clock_gettime(CLOCK_MONOTONIC, &last_verbose_log_entry);
 
     // Stores IP and port info on the last important piece of network traffic
     char last_important_ip[4];
@@ -1122,7 +1122,7 @@ int main(int argc, char** argv)
             }
 
             // Mark this time as the last time a busy check was performed
-            gettimeofday(&last_busy_check, 0);
+            clock_gettime(CLOCK_MONOTONIC, &last_busy_check);
         }
 
         // Sniff a frame; if nothing was read or an error occurred try again
@@ -1200,7 +1200,7 @@ int main(int argc, char** argv)
                 log.write(to_string.str());
 
                 // Reset the verbose log entry timer
-                gettimeofday(&last_verbose_log_entry, 0);
+                clock_gettime(CLOCK_MONOTONIC, &last_verbose_log_entry);
             }
         }
 
@@ -1228,7 +1228,7 @@ int main(int argc, char** argv)
             //log.write("Returning from sleep (" + sleep_state + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
-            gettimeofday(&idle_timer, 0);
+            clock_gettime(CLOCK_MONOTONIC, &idle_timer);
             last_idle_timer_reset_reason = IDLE_TIMER_EXPIRED;
 
             // Dump any data received during the sleep, it's not really that
