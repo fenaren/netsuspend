@@ -614,7 +614,10 @@ void handle_frame(char*           buffer,
     // In order to limit how much time this process takes up, sleep here for a
     // bit.  This helps limit the processing time this process takes when large
     // transfers of important traffic are being done.
-    usleep(1000000);
+    timespec one_second;
+    one_second.tv_sec = 1;
+    one_second.tv_nsec = 0;
+    nanosleep(&one_second, 0);
 }
 
 //=============================================================================
