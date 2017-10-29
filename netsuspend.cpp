@@ -521,7 +521,7 @@ void byteswap(char* data)
 //=============================================================================
 // Returns a double representation of a timespec timestamp
 //=============================================================================
-double get_time(const timespec& time)
+double timespec_to_double(const timespec& time)
 {
     return time.tv_sec + static_cast<double>(time.tv_nsec) / 1e9;
 }
@@ -622,7 +622,8 @@ void update_times(timespec& current_time, timespec& idle_timer)
     // If it been over 5 seconds since the last time the current time was
     // checked, assume the computer this process is running on was suspended and
     // has resumed.  In this case the timer should be reset.
-    if (get_time(new_current_time) - get_time(current_time) > 5)
+    if (timespec_to_double(new_current_time) -
+        timespec_to_double(current_time) > 5)
     {
         // Log that this is happening
         log.write("Suspend detected, resetting timer");
@@ -1095,7 +1096,8 @@ int main(int argc, char** argv)
         update_times(current_time, idle_timer);
 
         // Perform busy checks if it's time to do so
-        if (get_time(current_time) - get_time(last_busy_check) > busy_check_period)
+        if (timespec_to_double(current_time) -
+            timespec_to_double(last_busy_check) > busy_check_period)
         {
             // Perform a user check if enabled
             if (user_check_enabled)
@@ -1141,10 +1143,12 @@ int main(int argc, char** argv)
         // write a verbose log entry
         if (verbose_logging_enabled)
         {
-            if (get_time(current_time) - get_time(last_verbose_log_entry) > 30)
+            if (timespec_to_double(current_time) -
+                timespec_to_double(last_verbose_log_entry) > 30)
             {
                 // How long have we been idle?
-                double idle_time = get_time(current_time) - get_time(idle_timer);
+                double idle_time = timespec_to_double(current_time) -
+                    timespec_to_double(idle_timer);
 
                 // Build the verbose log entry
                 std::stringstream to_string;
@@ -1205,7 +1209,8 @@ int main(int argc, char** argv)
         }
 
         // Determine how long its been since the last important packet was read
-        if ((get_time(current_time) - get_time(idle_timer)) / 60 > idle_timeout)
+        if ((timespec_to_double(current_time) -
+             timespec_to_double(idle_timer)) / 60 > idle_timeout)
         {
             // It's been too long since the system received important network
             // traffic, so sleep
