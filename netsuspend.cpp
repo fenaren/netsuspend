@@ -519,6 +519,14 @@ void byteswap(char* data)
 }
 
 //=============================================================================
+// Get and return monotonic time
+//=============================================================================
+void get_time(timespec& time)
+{
+    clock_gettime(CLOCK_MONOTONIC, &time);
+}
+
+//=============================================================================
 // Returns a double representation of a timespec timestamp
 //=============================================================================
 double timespec_to_double(const timespec& time)
@@ -599,7 +607,7 @@ void handle_frame(char*           buffer,
     memcpy(last_important_ip, ip_header->source_ip, 4);
 
     // This is an important packet, so reset the idle timer
-    clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+    get_time(idle_timer);
 
     last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC;
 
@@ -617,7 +625,7 @@ void update_times(timespec& current_time, timespec& idle_timer)
 {
     // What is the current time?
     timespec new_current_time;
-    clock_gettime(CLOCK_MONOTONIC, &new_current_time);
+    get_time(new_current_time);
 
     // If it been over 5 seconds since the last time the current time was
     // checked, assume the computer this process is running on was suspended and
@@ -683,7 +691,7 @@ void do_user_check(timespec& idle_timer)
     // If a user is logged on, reset the idle timer
     if (user_check_success && logged_on)
     {
-        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+        get_time(idle_timer);
     }
 }
 
@@ -752,7 +760,7 @@ void do_cpu_check(timespec& idle_timer)
     // If the CPU is busy, reset the timer
     if (cpu_is_busy())
     {
-        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = CPU_USAGE_THRESHOLD_EXCEEDED;
     }
@@ -849,7 +857,7 @@ void do_disk_check(timespec& idle_timer)
     // If the disks are busy, reset the timer
     if (disk_is_busy())
     {
-        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = DISK_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
@@ -949,7 +957,7 @@ void do_net_check(timespec& idle_timer)
     // If the network is busy, reset the timer
     if (net_is_busy())
     {
-        clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
@@ -1067,20 +1075,20 @@ int main(int argc, char** argv)
 
     // Initialize current time
     timespec current_time;
-    clock_gettime(CLOCK_MONOTONIC, &current_time);
+    get_time(current_time);
 
     // This tracks the last time the computer was active.  Subtracting it from
     // current_time yields the amount of idle time
     timespec idle_timer;
-    clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+    get_time(idle_timer);
 
     // This tracks the last time a check for logged-in users was done
     timespec last_busy_check;
-    clock_gettime(CLOCK_MONOTONIC, &last_busy_check);
+    get_time(last_busy_check);
 
     // This tracks the last time a verbose log entry was written
     timespec last_verbose_log_entry;
-    clock_gettime(CLOCK_MONOTONIC, &last_verbose_log_entry);
+    get_time(last_verbose_log_entry);
 
     // Stores IP and port info on the last important piece of network traffic
     char last_important_ip[4];
@@ -1124,7 +1132,7 @@ int main(int argc, char** argv)
             }
 
             // Mark this time as the last time a busy check was performed
-            clock_gettime(CLOCK_MONOTONIC, &last_busy_check);
+            get_time(last_busy_check);
         }
 
         // Sniff a frame; if nothing was read or an error occurred try again
@@ -1204,7 +1212,7 @@ int main(int argc, char** argv)
                 log.write(to_string.str());
 
                 // Reset the verbose log entry timer
-                clock_gettime(CLOCK_MONOTONIC, &last_verbose_log_entry);
+                get_time(last_verbose_log_entry);
             }
         }
 
@@ -1233,7 +1241,7 @@ int main(int argc, char** argv)
             //log.write("Returning from sleep (" + sleep_state + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
-            clock_gettime(CLOCK_MONOTONIC, &idle_timer);
+            get_time(idle_timer);
             last_idle_timer_reset_reason = IDLE_TIMER_EXPIRED;
 
             // Dump any data received during the sleep, it's not really that
