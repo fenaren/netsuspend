@@ -1238,21 +1238,17 @@ int main(int argc, char** argv)
             // traffic, so sleep
 
             // First, log that we're going to sleep
-            //logfile.write("Timer expired, sleeping (" + sleep_state + ")");
+            logfile.write("Timer expired, sleeping (" +
+                          supported_sleep_states[sleep_state_inuse] + ")");
 
-            // Actually go to sleep
-            //if (system(timeout_cmd.c_str()) == -1)
-            //{
-                // Something went wrong; there are other return codes that could
-                // be handled here but -1 is the only one I'm sure is actually
-                // an error
-            //    logfile.writeError("Sleep command could not be properly executed");
-            //}
+            std::ofstream syspowerstate("/sys/power/state");
+            syspowerstate << supported_sleep_states[sleep_state_inuse] << "\n";
 
             // At this point the process just woke from sleep
 
             // Log that we just woke up
-            //logfile.write("Returning from sleep (" + sleep_state + ")");
+            logfile.write("Returning from sleep (" +
+                          supported_sleep_states[sleep_state_inuse] + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
             get_time(idle_timer);
