@@ -2,6 +2,7 @@
 // Leigh Garbs
 
 #include <algorithm>
+#include <cmath>
 #include <csignal>
 #include <cstring>
 #include <fstream>
@@ -95,7 +96,7 @@ bool is_big_endian;
 std::ofstream log_stream;
 
 // Log used to note important events
-Log log;
+Log logfile;
 
 // The number of kernel jiffies elapsed
 unsigned int last_jiffy_count = 0;
@@ -149,7 +150,7 @@ IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
 //=============================================================================
 void close_log(int)
 {
-    log.write("Closing log file");
+    logfile.write("Closing log file");
     log_stream.close();
 }
 
@@ -160,11 +161,11 @@ void open_log(int)
 {
     log_stream.open(log_filename.c_str(), std::ofstream::app);
 
-    log.setOutputStream(log_stream);
-    log.flushAfterWrite(true);
-    log.useLocalTime();
+    logfile.setOutputStream(log_stream);
+    logfile.flushAfterWrite(true);
+    logfile.useLocalTime();
 
-    log.write("Log file open");
+    logfile.write("Log file open");
 }
 
 //=============================================================================
@@ -173,7 +174,7 @@ void open_log(int)
 void clean_exit(int)
 {
     // Log that the service is stopping
-    log.write("Service stopping");
+    logfile.write("Service stopping");
 
     close_log(0);
 
@@ -535,6 +536,17 @@ double timespec_to_double(const timespec& time)
 }
 
 //=============================================================================
+// Returns a double representation of a timespec timestamp
+//=============================================================================
+void double_to_timespec(const double time_sec, timespec& time_ts)
+{
+    double whole_part = std::floor(time_sec);
+
+    time_ts.tv_sec  = static_cast<unsigned long>(whole_part);
+    time_ts.tv_nsec = static_cast<unsigned long>((time_sec - whole_part) * 1e9);
+}
+
+//=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
 void handle_frame(char*           buffer,
@@ -637,7 +649,7 @@ void update_times(timespec& current_time, timespec& idle_timer)
         timespec_to_double(current_time) > 5)
     {
         // Log that this is happening
-        log.write("Suspend detected, resetting timer");
+        logfile.write("Suspend detected, resetting timer");
 
         memcpy(&idle_timer, &new_current_time, sizeof(timespec));
     }
@@ -1099,7 +1111,7 @@ int main(int argc, char** argv)
     unsigned short last_important_destination_port = 0;
 
     // Note this service is starting
-    log.write("Service starting");
+    logfile.write("Service starting");
 
     // Start sniffing
     while(true)
@@ -1212,7 +1224,7 @@ int main(int argc, char** argv)
                 }
 
                 // Write the verbose log entry
-                log.write(to_string.str());
+                logfile.write(to_string.str());
 
                 // Reset the verbose log entry timer
                 get_time(last_verbose_log_entry);
@@ -1227,7 +1239,7 @@ int main(int argc, char** argv)
             // traffic, so sleep
 
             // First, log that we're going to sleep
-            //log.write("Timer expired, sleeping (" + sleep_state + ")");
+            //logfile.write("Timer expired, sleeping (" + sleep_state + ")");
 
             // Actually go to sleep
             //if (system(timeout_cmd.c_str()) == -1)
@@ -1235,13 +1247,13 @@ int main(int argc, char** argv)
                 // Something went wrong; there are other return codes that could
                 // be handled here but -1 is the only one I'm sure is actually
                 // an error
-            //    log.writeError("Sleep command could not be properly executed");
+            //    logfile.writeError("Sleep command could not be properly executed");
             //}
 
             // At this point the process just woke from sleep
 
             // Log that we just woke up
-            //log.write("Returning from sleep (" + sleep_state + ")");
+            //logfile.write("Returning from sleep (" + sleep_state + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
             get_time(idle_timer);
