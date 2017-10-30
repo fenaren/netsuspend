@@ -416,7 +416,7 @@ void process_config_file(const std::string& filename)
             {
                 if (supported_sleep_states[i] == right_side)
                 {
-                    chosen_sleep_state = i;
+                    sleep_state_inuse = i;
                     break;
                 }
             }
@@ -981,8 +981,7 @@ void do_net_check(timespec& idle_timer)
 //=============================================================================
 // Reads /sys/power/state and stores each word to supported_sleep_states
 //=============================================================================
-void discover_supported_sleep_states(
-    std::vector<std::string>& supported_sleep_states)
+void discover_supported_sleep_states()
 {
     // Get rid of whatever is already in there
     supported_sleep_states.clear();
@@ -1039,7 +1038,7 @@ int main(int argc, char** argv)
     }
 
     // Populate supported sleep states with what this system supports
-    discover_supported_sleep_states(supported_sleep_states);
+    discover_supported_sleep_states();
 
     // Parse the config file
     process_config_file(config_filename);
