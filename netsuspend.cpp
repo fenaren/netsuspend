@@ -1074,6 +1074,8 @@ int main(int argc, char** argv)
     // Initialize the logging stream
     open_log(0);
 
+    //TODO: Check that /sys/power/state exists
+
     // Determine endian-ness of this host
     unsigned short test_var = 0xff00;
     is_big_endian = *(unsigned char*)&test_var > 0;
@@ -1241,8 +1243,11 @@ int main(int argc, char** argv)
             logfile.write("Timer expired, sleeping (" +
                           supported_sleep_states[sleep_state_inuse] + ")");
 
+            // Don't write a newline after writing the name of the sleep state
+            // we're using.  The sleep will be initiated but the write will
+            // block until we resume from sleep
             std::ofstream syspowerstate("/sys/power/state");
-            syspowerstate << supported_sleep_states[sleep_state_inuse] << "\n";
+            syspowerstate << supported_sleep_states[sleep_state_inuse];
 
             // At this point the process just woke from sleep
 
