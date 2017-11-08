@@ -1093,6 +1093,14 @@ int main(int argc, char** argv)
         clean_exit(0);
     }
 
+    // Write the discovered sleep states to the log
+    std::string sleep_states_oneline = supported_sleep_states[0];
+    for (unsigned int i = 1; i < supported_sleep_states.size(); i++)
+    {
+        sleep_states_oneline += " " + supported_sleep_states[i];
+    }
+    logfile.write("Available sleep states: " + sleep_states_oneline);
+
     // Choose the first available supported sleep state if the user has not
     // chosen one for us
     if (sleep_state_inuse == -1)
@@ -1100,6 +1108,11 @@ int main(int argc, char** argv)
         sleep_state_inuse = 0;
         logfile.writeWarning("No sleep state chosen, using " +
                              supported_sleep_states[sleep_state_inuse]);
+    }
+    else
+    {
+        logfile.write(
+            "Using sleep state " + supported_sleep_states[sleep_state_inuse]);
     }
 
     // Determine endian-ness of this host
