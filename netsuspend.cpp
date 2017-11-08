@@ -173,10 +173,13 @@ void open_log(int)
 //=============================================================================
 void clean_exit(int)
 {
-    // Log that the service is stopping
-    logfile.write("Service stopping");
+    if (logfile.getOutputStream().good())
+    {
+        // Log that the service is stopping
+        logfile.write("Service stopping");
 
-    close_log(0);
+        close_log(0);
+    }
 
     // Delete the PID file
     unlink(pid_filename.c_str());
@@ -1080,6 +1083,25 @@ int main(int argc, char** argv)
     // Initialize the logging stream
     open_log(0);
 
+    // Note this service is starting
+    logfile.write("Service starting");
+
+    // Quit early if there are no supported sleep states
+    if (supported_sleep_states.empty())
+    {
+        logfile.writeError("No supported sleep states available, exiting early");
+        clean_exit(0);
+    }
+
+    // Choose the first available supported sleep state if the user has not
+    // chosen one for us
+    if (sleep_state_inuse == -1)
+    {
+        sleep_state_inuse = 0;
+        logfile.writeWarning("No sleep state chosen, using " +
+                             supported_sleep_states[sleep_state_inuse]);
+    }
+
     // Determine endian-ness of this host
     unsigned short test_var = 0xff00;
     is_big_endian = *(unsigned char*)&test_var > 0;
@@ -1114,9 +1136,6 @@ int main(int argc, char** argv)
     char last_important_ip[4];
     unsigned short last_important_source_port = 0;
     unsigned short last_important_destination_port = 0;
-
-    // Note this service is starting
-    logfile.write("Service starting");
 
     // Start sniffing
     while(true)
