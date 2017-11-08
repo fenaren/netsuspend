@@ -986,7 +986,13 @@ void discover_supported_sleep_states()
     // Get rid of whatever is already in there
     supported_sleep_states.clear();
 
+    // Try to open the file then check if it's really open
     std::ifstream sys_power_state("/sys/power/state");
+    if (!sys_power_state.is_open())
+    {
+        return;
+    }
+
     while (!sys_power_state.eof())
     {
         std::string sleep_state;
@@ -1073,8 +1079,6 @@ int main(int argc, char** argv)
 
     // Initialize the logging stream
     open_log(0);
-
-    //TODO: Check that /sys/power/state exists
 
     // Determine endian-ness of this host
     unsigned short test_var = 0xff00;
