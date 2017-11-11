@@ -1093,6 +1093,17 @@ int main(int argc, char** argv)
         clean_exit(0);
     }
 
+    // See if we can open /sys/power/state for writing, if not then this program
+    // has no point
+    std::ofstream test_syspowerstate_write("/sys/power/state");
+    if (!test_syspowerstate_write.good())
+    {
+        logfile.writeError("Cannot open /sys/power/state for writing, exiting "
+                           "early");
+        clean_exit(0);
+    }
+    test_syspowerstate_write.close();
+
     // Quit early if there are no supported sleep states
     if (supported_sleep_states.empty())
     {
