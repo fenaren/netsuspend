@@ -981,7 +981,7 @@ void do_net_check(timespec& idle_timer)
 //=============================================================================
 // Reads /sys/power/state and stores each word to supported_sleep_states
 //=============================================================================
-void discover_supported_sleep_states()
+bool discover_supported_sleep_states()
 {
     // Get rid of whatever is already in there
     supported_sleep_states.clear();
@@ -990,7 +990,7 @@ void discover_supported_sleep_states()
     std::ifstream sys_power_state("/sys/power/state");
     if (!sys_power_state.is_open())
     {
-        return;
+        return false;
     }
 
     while (!sys_power_state.eof())
@@ -1004,6 +1004,8 @@ void discover_supported_sleep_states()
             supported_sleep_states.push_back(sleep_state);
         }
     }
+
+    return true;
 }
 
 //=============================================================================
@@ -1044,7 +1046,7 @@ int main(int argc, char** argv)
     }
 
     // Populate supported sleep states with what this system supports
-    discover_supported_sleep_states();
+    bool dsss_good = discover_supported_sleep_states();
 
     // Parse the config file
     process_config_file(config_filename);
@@ -1082,6 +1084,14 @@ int main(int argc, char** argv)
 
     // Note this service is starting
     logfile.write("Service starting");
+
+    // If there was an error checking which sleep stats are supported then abort
+    if (!dsss_good)
+    {
+        logfile.writeError("Could not successfully check /sys/power/state for "
+                           "supported sleep states, exiting early");
+        clean_exit(0);
+    }
 
     // Quit early if there are no supported sleep states
     if (supported_sleep_states.empty())
