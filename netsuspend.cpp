@@ -559,7 +559,7 @@ void handle_frame(char*           buffer,
                   unsigned short& last_important_destination_port)
 {
     // Assume its an Ethernet II frame
-    ethernet_ii_header* eth_header = (ethernet_ii_header*)buffer;
+    ethernet_ii_header* eth_header = reinterpret_cast<ethernet_ii_header*>(buffer);
 
     // Ethertype for IPv4 packets
     char ipv4_type[2];
@@ -573,7 +573,7 @@ void handle_frame(char*           buffer,
     }
 
     // Get a handy IPv4-style way to reference the packet
-    ipv4_header* ip_header = (ipv4_header*)(buffer + sizeof(ethernet_ii_header));
+    ipv4_header* ip_header = reinterpret_cast<ipv4_header*>(buffer + sizeof(ethernet_ii_header));
 
     // Ignore any non-TCP or UDP traffic
     if (!(*ip_header->protocol == 0x06 || *ip_header->protocol == 0x11))
@@ -675,13 +675,10 @@ bool user_logged_on(bool& logged_on)
 
     // Get the command output
     char buffer[PARSING_BUFFER_LENGTH];
-    if (fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe) == NULL)
-    {
-        return false;
-    }
+    char* fgets_buffer = fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe);
 
     // Close the pipe
-    if (pclose(command_pipe) == -1)
+    if (pclose(command_pipe) == -1 || fgets_buffer == NULL)
     {
         return false;
     }
@@ -822,7 +819,7 @@ bool disk_is_busy()
 
         for (std::map<std::string, Disk>::iterator i = disks.begin();
              i != disks.end();
-             i++)
+             ++i)
         {
             // See if this disk is one we're supposed to monitor
             if (i->first == disk)
