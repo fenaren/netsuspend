@@ -92,7 +92,7 @@ int sleep_state_inuse = -1;
 // Is host computer big endian?
 bool is_big_endian;
 
-// File that logging will go to
+// File that logging will go to if it doesn't go to std::out
 std::ofstream log_stream;
 
 // Log used to note important events
@@ -159,11 +159,18 @@ void close_log(int)
 //=============================================================================
 void open_log(int)
 {
+    // Try to log to the log file first
     log_stream.open(log_filename.c_str(), std::ofstream::app);
 
-    logfile.setOutputStream(log_stream);
-    logfile.flushAfterWrite(true);
-    logfile.useLocalTime();
+    // Use the log file if it's good, otherwise just use std::cout
+    if (log_stream.good())
+    {
+        logfile.setOutputStream(log_stream);
+    }
+    else
+    {
+        logfile.setOutputStream(std::cout);
+    }
 
     logfile.write("Log file open");
 }
@@ -270,7 +277,8 @@ bool process_arguments(int argc, char** argv)
             }
         }
         // Argument --log specifies a file to log to
-        else if (strcmp("--log", argv[arg]) == 0 && arg + 1 < argc)
+        else if ((strcmp("--log", argv[arg]) == 0 ||
+                  strcmp("-l", argv[arg]) == 0) && arg + 1 < argc)
         {
             arg++;
 
@@ -1044,6 +1052,9 @@ int main(int argc, char** argv)
         fprintf(stderr, "Could not attach SIGUSR2 handler\n");
         return 1;
     }
+
+    logfile.flushAfterWrite(true);
+    logfile.useLocalTime();
 
     // Populate supported sleep states with what this system supports
     bool dsss_good = discover_supported_sleep_states();
