@@ -2,6 +2,7 @@
 // Leigh Garbs
 
 #include <algorithm>
+#include <cmath>
 #include <csignal>
 #include <cstring>
 #include <fstream>
@@ -11,8 +12,8 @@
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 #include <vector>
 
@@ -82,14 +83,20 @@ std::map<std::string, Interface> interfaces;
 // List of disks to monitor for business
 std::map<std::string, Disk> disks;
 
+// Populated with the contents of /sys/power/state
+std::vector<std::string> supported_sleep_states;
+
+// Index into supported_sleep_states; represents the user's chosen sleep state
+int sleep_state_inuse = -1;
+
 // Is host computer big endian?
 bool is_big_endian;
 
-// File that logging will go to
+// File that logging will go to if it doesn't go to std::out
 std::ofstream log_stream;
 
 // Log used to note important events
-Log log;
+Log logfile;
 
 // The number of kernel jiffies elapsed
 unsigned int last_jiffy_count = 0;
@@ -106,9 +113,6 @@ bool daemonize = false;
 // How long netsuspend should allow the computer to remain idle before putting
 // it to sleep
 unsigned int idle_timeout = 15;
-
-// The command to run when idle_timeout elapses
-std::string timeout_cmd = "pm-suspend";
 
 // Is the system considered active when a user is logged on?
 bool user_check_enabled = false;
@@ -146,7 +150,7 @@ IdleTimerResetReason last_idle_timer_reset_reason = PROGRAM_START;
 //=============================================================================
 void close_log(int)
 {
-    log.write("Closing log file");
+    logfile.write("Closing log file");
     log_stream.close();
 }
 
@@ -155,13 +159,20 @@ void close_log(int)
 //=============================================================================
 void open_log(int)
 {
+    // Try to log to the log file first
     log_stream.open(log_filename.c_str(), std::ofstream::app);
 
-    log.setOutputStream(log_stream);
-    log.flushAfterWrite(true);
-    log.useLocalTime();
+    // Use the log file if it's good, otherwise just use std::cout
+    if (log_stream.good())
+    {
+        logfile.setOutputStream(log_stream);
+    }
+    else
+    {
+        logfile.setOutputStream(std::cout);
+    }
 
-    log.write("Log file open");
+    logfile.write("Log file open");
 }
 
 //=============================================================================
@@ -169,10 +180,13 @@ void open_log(int)
 //=============================================================================
 void clean_exit(int)
 {
-    // Log that the service is stopping
-    log.write("Service stopping");
+    if (logfile.getOutputStream().good())
+    {
+        // Log that the service is stopping
+        logfile.write("Service stopping");
 
-    close_log(0);
+        close_log(0);
+    }
 
     // Delete the PID file
     unlink(pid_filename.c_str());
@@ -205,6 +219,12 @@ bool process_arguments(int argc, char** argv)
         if (strcmp("-D", argv[arg]) == 0)
         {
             daemonize = true;
+        }
+        // Argument -F sets the program to run in the foreground; do not
+        // daemonize
+        else if (strcmp("-F", argv[arg]) == 0)
+        {
+            daemonize = false;
         }
         // Argument --config specifies an alternative config file
         else if (strcmp("--config", argv[arg]) == 0 && arg + 1 < argc)
@@ -257,7 +277,8 @@ bool process_arguments(int argc, char** argv)
             }
         }
         // Argument --log specifies a file to log to
-        else if (strcmp("--log", argv[arg]) == 0 && arg + 1 < argc)
+        else if ((strcmp("--log", argv[arg]) == 0 ||
+                  strcmp("-l", argv[arg]) == 0) && arg + 1 < argc)
         {
             arg++;
 
@@ -290,7 +311,7 @@ void ip_to_string(const unsigned char* const ip,
 //=============================================================================
 // Parses configuration file
 //=============================================================================
-void parse_ports_file(const std::string& filename)
+void process_ports_file(const std::string& filename)
 {
     // Open the ports file
     std::fstream ports_file(filename.c_str());
@@ -323,7 +344,7 @@ void parse_ports_file(const std::string& filename)
 //=============================================================================
 // Parses config file
 //=============================================================================
-void parse_config_file(const std::string& filename)
+void process_config_file(const std::string& filename)
 {
     // Open the config file
     std::ifstream config_stream(filename.c_str());
@@ -399,9 +420,17 @@ void parse_config_file(const std::string& filename)
             convert_to_number.str(right_side);
             convert_to_number >> idle_timeout;
         }
-        else if (left_side == "TIMEOUT_CMD")
+        else if (left_side == "SLEEP_STATE")
         {
-            timeout_cmd = right_side;
+            // Search supported_sleep_states for the named sleep state
+            for (unsigned int i = 0; i < supported_sleep_states.size(); i++)
+            {
+                if (supported_sleep_states[i] == right_side)
+                {
+                    sleep_state_inuse = i;
+                    break;
+                }
+            }
         }
         else if (left_side == "USER_CHECKING")
         {
@@ -445,7 +474,7 @@ void parse_config_file(const std::string& filename)
 //=============================================================================
 // Parses interfaces file
 //=============================================================================
-void parse_interfaces_file(const std::string& filename)
+void process_interfaces_file(const std::string& filename)
 {
     std::ifstream interfaces_stream(filename.c_str());
 
@@ -468,7 +497,7 @@ void parse_interfaces_file(const std::string& filename)
 //=============================================================================
 // Parses disks file
 //=============================================================================
-void parse_disks_file(const std::string& filename)
+void process_disks_file(const std::string& filename)
 {
     std::ifstream disks_stream(filename.c_str());
 
@@ -502,24 +531,43 @@ void byteswap(char* data)
 }
 
 //=============================================================================
-// Returns a double representation of a timeval timestamp
+// Get and return monotonic time
 //=============================================================================
-double get_time(const timeval& time)
+void get_time(timespec& time)
 {
-    return time.tv_sec + static_cast<double>(time.tv_usec) / 1e6;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+}
+
+//=============================================================================
+// Returns a double representation of a timespec timestamp
+//=============================================================================
+double timespec_to_double(const timespec& time)
+{
+    return time.tv_sec + static_cast<double>(time.tv_nsec) / 1e9;
+}
+
+//=============================================================================
+// Returns a double representation of a timespec timestamp
+//=============================================================================
+void double_to_timespec(const double time_sec, timespec& time_ts)
+{
+    double whole_part = std::floor(time_sec);
+
+    time_ts.tv_sec  = static_cast<unsigned long>(whole_part);
+    time_ts.tv_nsec = static_cast<unsigned long>((time_sec - whole_part) * 1e9);
 }
 
 //=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
 void handle_frame(char*           buffer,
-                  timeval&        idle_timer,
+                  timespec&       idle_timer,
                   char*           last_important_ip,
                   unsigned short& last_important_source_port,
                   unsigned short& last_important_destination_port)
 {
     // Assume its an Ethernet II frame
-    ethernet_ii_header* eth_header = (ethernet_ii_header*)buffer;
+    ethernet_ii_header* eth_header = reinterpret_cast<ethernet_ii_header*>(buffer);
 
     // Ethertype for IPv4 packets
     char ipv4_type[2];
@@ -533,7 +581,7 @@ void handle_frame(char*           buffer,
     }
 
     // Get a handy IPv4-style way to reference the packet
-    ipv4_header* ip_header = (ipv4_header*)(buffer + sizeof(ethernet_ii_header));
+    ipv4_header* ip_header = reinterpret_cast<ipv4_header*>(buffer + sizeof(ethernet_ii_header));
 
     // Ignore any non-TCP or UDP traffic
     if (!(*ip_header->protocol == 0x06 || *ip_header->protocol == 0x11))
@@ -582,39 +630,43 @@ void handle_frame(char*           buffer,
     memcpy(last_important_ip, ip_header->source_ip, 4);
 
     // This is an important packet, so reset the idle timer
-    gettimeofday(&idle_timer, 0);
+    get_time(idle_timer);
 
     last_idle_timer_reset_reason = NET_IMPORTANT_TRAFFIC;
 
     // In order to limit how much time this process takes up, sleep here for a
     // bit.  This helps limit the processing time this process takes when large
     // transfers of important traffic are being done.
-    usleep(1000000);
+    timespec one_second;
+    one_second.tv_sec = 1;
+    one_second.tv_nsec = 0;
+    nanosleep(&one_second, 0);
 }
 
 //=============================================================================
 // Updates current with the new current time, as well as idle_timer if a suspend
 // happened
 //=============================================================================
-void update_times(timeval& current_time, timeval& idle_timer)
+void update_times(timespec& current_time, timespec& idle_timer)
 {
     // What is the current time?
-    timeval new_current_time;
-    gettimeofday(&new_current_time, 0);
+    timespec new_current_time;
+    get_time(new_current_time);
 
     // If it been over 5 seconds since the last time the current time was
     // checked, assume the computer this process is running on was suspended and
     // has resumed.  In this case the timer should be reset.
-    if (get_time(new_current_time) - get_time(current_time) > 5)
+    if (timespec_to_double(new_current_time) -
+        timespec_to_double(current_time) > 5)
     {
         // Log that this is happening
-        log.write("Suspend detected, resetting timer");
+        logfile.write("Suspend detected, resetting timer");
 
-        memcpy(&idle_timer, &new_current_time, sizeof(timeval));
+        memcpy(&idle_timer, &new_current_time, sizeof(timespec));
     }
 
     // Update current time
-    memcpy(&current_time, &new_current_time, sizeof(timeval));
+    memcpy(&current_time, &new_current_time, sizeof(timespec));
 }
 
 //=============================================================================
@@ -631,13 +683,10 @@ bool user_logged_on(bool& logged_on)
 
     // Get the command output
     char buffer[PARSING_BUFFER_LENGTH];
-    if (fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe) == NULL)
-    {
-        return false;
-    }
+    char* fgets_buffer = fgets(buffer, PARSING_BUFFER_LENGTH, command_pipe);
 
     // Close the pipe
-    if (pclose(command_pipe) == -1)
+    if (pclose(command_pipe) == -1 || fgets_buffer == NULL)
     {
         return false;
     }
@@ -657,7 +706,7 @@ bool user_logged_on(bool& logged_on)
 //=============================================================================
 // Resets the idle timer if a user is logged in
 //=============================================================================
-void do_user_check(timeval& idle_timer)
+void do_user_check(timespec& idle_timer)
 {
     bool logged_on = false;
     bool user_check_success = user_logged_on(logged_on);
@@ -665,7 +714,7 @@ void do_user_check(timeval& idle_timer)
     // If a user is logged on, reset the idle timer
     if (user_check_success && logged_on)
     {
-        gettimeofday(&idle_timer, 0);
+        get_time(idle_timer);
     }
 }
 
@@ -729,12 +778,12 @@ bool cpu_is_busy()
 //=============================================================================
 // Resets the idle timer if the CPU is busy
 //=============================================================================
-void do_cpu_check(timeval& idle_timer)
+void do_cpu_check(timespec& idle_timer)
 {
     // If the CPU is busy, reset the timer
     if (cpu_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = CPU_USAGE_THRESHOLD_EXCEEDED;
     }
@@ -778,7 +827,7 @@ bool disk_is_busy()
 
         for (std::map<std::string, Disk>::iterator i = disks.begin();
              i != disks.end();
-             i++)
+             ++i)
         {
             // See if this disk is one we're supposed to monitor
             if (i->first == disk)
@@ -826,12 +875,12 @@ bool disk_is_busy()
 //=============================================================================
 // Resets the idle timer if the disks are busy
 //=============================================================================
-void do_disk_check(timeval& idle_timer)
+void do_disk_check(timespec& idle_timer)
 {
     // If the disks are busy, reset the timer
     if (disk_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = DISK_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
@@ -926,15 +975,45 @@ bool net_is_busy()
 //=============================================================================
 // Resets the idle timer if the network is busy
 //=============================================================================
-void do_net_check(timeval& idle_timer)
+void do_net_check(timespec& idle_timer)
 {
     // If the network is busy, reset the timer
     if (net_is_busy())
     {
-        gettimeofday(&idle_timer, 0);
+        get_time(idle_timer);
 
         last_idle_timer_reset_reason = NET_INTERFACE_BANDWIDTH_THRESHOLD_EXCEEDED;
     }
+}
+
+//=============================================================================
+// Reads /sys/power/state and stores each word to supported_sleep_states
+//=============================================================================
+bool discover_supported_sleep_states()
+{
+    // Get rid of whatever is already in there
+    supported_sleep_states.clear();
+
+    // Try to open the file then check if it's really open
+    std::ifstream sys_power_state("/sys/power/state");
+    if (!sys_power_state.is_open())
+    {
+        return false;
+    }
+
+    while (!sys_power_state.eof())
+    {
+        std::string sleep_state;
+        sys_power_state >> sleep_state;
+
+        // The last read is usually empty
+        if (!sleep_state.empty())
+        {
+            supported_sleep_states.push_back(sleep_state);
+        }
+    }
+
+    return true;
 }
 
 //=============================================================================
@@ -974,8 +1053,14 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    logfile.flushAfterWrite(true);
+    logfile.useLocalTime();
+
+    // Populate supported sleep states with what this system supports
+    bool dsss_good = discover_supported_sleep_states();
+
     // Parse the config file
-    parse_config_file(config_filename);
+    process_config_file(config_filename);
 
     // Process the arguments
     if (!process_arguments(argc, argv))
@@ -985,13 +1070,13 @@ int main(int argc, char** argv)
     }
 
     // Parse the config file for important ports
-    parse_ports_file(ports_filename);
+    process_ports_file(ports_filename);
 
     // Parse the config file for important ports
-    parse_interfaces_file(interfaces_filename);
+    process_interfaces_file(interfaces_filename);
 
     // Parse the config file for important ports
-    parse_disks_file(disks_filename);
+    process_disks_file(disks_filename);
 
     // If this process is to run as a daemon then do it
     if (daemonize)
@@ -1008,6 +1093,57 @@ int main(int argc, char** argv)
     // Initialize the logging stream
     open_log(0);
 
+    // Note this service is starting
+    logfile.write("Service starting");
+
+    // If there was an error checking which sleep stats are supported then abort
+    if (!dsss_good)
+    {
+        logfile.writeError("Could not successfully check /sys/power/state for "
+                           "supported sleep states, exiting early");
+        clean_exit(0);
+    }
+
+    // See if we can open /sys/power/state for writing, if not then this program
+    // has no point
+    std::ofstream test_syspowerstate_write("/sys/power/state");
+    if (!test_syspowerstate_write.good())
+    {
+        logfile.writeError("Cannot open /sys/power/state for writing, exiting "
+                           "early");
+        clean_exit(0);
+    }
+    test_syspowerstate_write.close();
+
+    // Quit early if there are no supported sleep states
+    if (supported_sleep_states.empty())
+    {
+        logfile.writeError("No supported sleep states available, exiting early");
+        clean_exit(0);
+    }
+
+    // Write the discovered sleep states to the log
+    std::string sleep_states_oneline = supported_sleep_states[0];
+    for (unsigned int i = 1; i < supported_sleep_states.size(); i++)
+    {
+        sleep_states_oneline += " " + supported_sleep_states[i];
+    }
+    logfile.write("Available sleep states: " + sleep_states_oneline);
+
+    // Choose the first available supported sleep state if the user has not
+    // chosen one for us
+    if (sleep_state_inuse == -1)
+    {
+        sleep_state_inuse = 0;
+        logfile.writeWarning("No sleep state chosen, using " +
+                             supported_sleep_states[sleep_state_inuse]);
+    }
+    else
+    {
+        logfile.write(
+            "Using sleep state " + supported_sleep_states[sleep_state_inuse]);
+    }
+
     // Determine endian-ness of this host
     unsigned short test_var = 0xff00;
     is_big_endian = *(unsigned char*)&test_var > 0;
@@ -1022,29 +1158,26 @@ int main(int argc, char** argv)
     char buffer[ETH_FRAME_LEN];
 
     // Initialize current time
-    timeval current_time;
-    gettimeofday(&current_time, 0);
+    timespec current_time;
+    get_time(current_time);
 
     // This tracks the last time the computer was active.  Subtracting it from
     // current_time yields the amount of idle time
-    timeval idle_timer;
-    gettimeofday(&idle_timer, 0);
+    timespec idle_timer;
+    get_time(idle_timer);
 
     // This tracks the last time a check for logged-in users was done
-    timeval last_busy_check;
-    gettimeofday(&last_busy_check, 0);
+    timespec last_busy_check;
+    get_time(last_busy_check);
 
     // This tracks the last time a verbose log entry was written
-    timeval last_verbose_log_entry;
-    gettimeofday(&last_verbose_log_entry, 0);
+    timespec last_verbose_log_entry;
+    get_time(last_verbose_log_entry);
 
     // Stores IP and port info on the last important piece of network traffic
     char last_important_ip[4];
     unsigned short last_important_source_port = 0;
     unsigned short last_important_destination_port = 0;
-
-    // Note this service is starting
-    log.write("Service starting");
 
     // Start sniffing
     while(true)
@@ -1052,7 +1185,8 @@ int main(int argc, char** argv)
         update_times(current_time, idle_timer);
 
         // Perform busy checks if it's time to do so
-        if (get_time(current_time) - get_time(last_busy_check) > busy_check_period)
+        if (timespec_to_double(current_time) -
+            timespec_to_double(last_busy_check) > busy_check_period)
         {
             // Perform a user check if enabled
             if (user_check_enabled)
@@ -1079,7 +1213,7 @@ int main(int argc, char** argv)
             }
 
             // Mark this time as the last time a busy check was performed
-            gettimeofday(&last_busy_check, 0);
+            get_time(last_busy_check);
         }
 
         // Sniff a frame; if nothing was read or an error occurred try again
@@ -1098,10 +1232,12 @@ int main(int argc, char** argv)
         // write a verbose log entry
         if (verbose_logging_enabled)
         {
-            if (get_time(current_time) - get_time(last_verbose_log_entry) > 30)
+            if (timespec_to_double(current_time) -
+                timespec_to_double(last_verbose_log_entry) > 30)
             {
                 // How long have we been idle?
-                double idle_time = get_time(current_time) - get_time(idle_timer);
+                double idle_time = timespec_to_double(current_time) -
+                    timespec_to_double(idle_timer);
 
                 // Build the verbose log entry
                 std::stringstream to_string;
@@ -1154,38 +1290,38 @@ int main(int argc, char** argv)
                 }
 
                 // Write the verbose log entry
-                log.write(to_string.str());
+                logfile.write(to_string.str());
 
                 // Reset the verbose log entry timer
-                gettimeofday(&last_verbose_log_entry, 0);
+                get_time(last_verbose_log_entry);
             }
         }
 
         // Determine how long its been since the last important packet was read
-        if ((get_time(current_time) - get_time(idle_timer)) / 60 > idle_timeout)
+        if ((timespec_to_double(current_time) -
+             timespec_to_double(idle_timer)) / 60 > idle_timeout)
         {
             // It's been too long since the system received important network
             // traffic, so sleep
 
             // First, log that we're going to sleep
-            log.write("Timer expired, running " + timeout_cmd);
+            logfile.write("Timer expired, sleeping (" +
+                          supported_sleep_states[sleep_state_inuse] + ")");
 
-            // Actually go to sleep
-            if (system(timeout_cmd.c_str()) == -1)
-            {
-                // Something went wrong; there are other return codes that could
-                // be handled here but -1 is the only one I'm sure is actually
-                // an error
-                log.writeError("Sleep command could not be properly executed");
-            }
+            // Don't write a newline after writing the name of the sleep state
+            // we're using.  The sleep will be initiated but the write will
+            // block until we resume from sleep
+            std::ofstream syspowerstate("/sys/power/state");
+            syspowerstate << supported_sleep_states[sleep_state_inuse];
 
             // At this point the process just woke from sleep
 
             // Log that we just woke up
-            log.write("Returning from " + timeout_cmd);
+            logfile.write("Returning from sleep (" +
+                          supported_sleep_states[sleep_state_inuse] + ")");
 
             // Reset idle timer.  Suspension counts as an activity.
-            gettimeofday(&idle_timer, 0);
+            get_time(idle_timer);
             last_idle_timer_reset_reason = IDLE_TIMER_EXPIRED;
 
             // Dump any data received during the sleep, it's not really that
