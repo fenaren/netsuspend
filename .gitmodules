@@ -3,4 +3,4 @@
         url = ../../leighgarbs/toolbox.git
 [submodule "common"]
 	path = common
-	url = git@gitlab.dmz:leighgarbs/common.git
+	url = ../../leighgarbs/common.git
