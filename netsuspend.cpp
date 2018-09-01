@@ -17,7 +17,7 @@
 #include <unistd.h>
 #include <vector>
 
-#include "LinuxRawSocket.hpp"
+#include "LinuxRawSocketImpl.hpp"
 #include "Log.hpp"
 #include "ethernet_ii_header.h"
 #include "ipv4_header.h"
@@ -560,7 +560,7 @@ void double_to_timespec(const double time_sec, timespec& time_ts)
 //=============================================================================
 // Handles Ethernet frames as they are sniffed
 //=============================================================================
-void handle_frame(char*           buffer,
+void handle_frame(unsigned char*  buffer,
                   timespec&       idle_timer,
                   char*           last_important_ip,
                   unsigned short& last_important_source_port,
@@ -597,7 +597,8 @@ void handle_frame(char*           buffer,
     unsigned short ip_headerlen = (*(ip_header->version_headerlen) & 0x0f) * 4;
 
     // Save a pointer to the start of the IPv4 payload
-    char* ip_payload = buffer + sizeof(ethernet_ii_header) + ip_headerlen;
+    unsigned char* ip_payload =
+        buffer + sizeof(ethernet_ii_header) + ip_headerlen;
 
     // Extract the destination port
     unsigned short source_port = *(unsigned short*)ip_payload;
@@ -1149,13 +1150,13 @@ int main(int argc, char** argv)
     is_big_endian = *(unsigned char*)&test_var > 0;
 
     // Create the socket to sniff frames on
-    LinuxRawSocket sniff_socket;
+    LinuxRawSocketImpl sniff_socket;
     sniff_socket.enableBlocking();
     sniff_socket.setBlockingTimeout(1.0);
     sniff_socket.setInputInterface(interface_name);
 
     // Buffer to sniff data into
-    char buffer[ETH_FRAME_LEN];
+    unsigned char buffer[ETH_FRAME_LEN];
 
     // Initialize current time
     timespec current_time;
